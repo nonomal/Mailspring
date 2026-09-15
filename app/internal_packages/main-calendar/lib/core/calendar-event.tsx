@@ -1,13 +1,28 @@
 import React, { CSSProperties } from 'react';
 import ReactDOM from 'react-dom';
 import { InjectedComponentSet } from 'mailspring-component-kit';
-import { EventOccurrence } from './calendar-data-source';
-import { calcColor } from './calendar-helpers';
+import { CalendarDateUtils } from 'mailspring-exports';
+import {
+  EventOccurrence,
+  isTimed,
+  occurrenceStartUnix,
+  occurrenceEndUnix,
+} from './calendar-data-source';
+import { calcEventColors, extractMeetingDomain, formatEventTimeRange } from './calendar-helpers';
+import { RecurringIcon } from './calendar-icons';
+import { HitZone, ViewDirection } from './calendar-drag-types';
+import { detectHitZone, canMoveEvent, formatDragPreviewTime } from './calendar-drag-utils';
+import { DAY_DUR, columnSpan } from './week-view-helpers';
 
 interface CalendarEventProps {
   event: EventOccurrence;
   order: number;
   selected: boolean;
+  /**
+   * The span this event is positioned within. Day columns pass one day, exclusive — its real
+   * length, not 86400. The all-day row passes the whole buffered week, and reads it only as a
+   * day count, so the two disagree by a second there without effect.
+   */
   scopeEnd: number;
   scopeStart: number;
   direction: 'horizontal' | 'vertical';
@@ -15,12 +30,28 @@ interface CalendarEventProps {
   focused: boolean;
   concurrentEvents: number;
 
+  /** Whether this event is currently being dragged */
+  isDragging?: boolean;
+
+  /** Size of the edge zone for resize detection (in pixels) */
+  edgeZoneSize?: number;
+
+  /** Whether the calendar containing this event is read-only */
+  isCalendarReadOnly?: boolean;
+
   onClick: (e: React.MouseEvent<any>, event: EventOccurrence) => void;
   onDoubleClick: (event: EventOccurrence) => void;
   onFocused: (event: EventOccurrence) => void;
+
+  /** Called when a drag operation starts on this event */
+  onDragStart?: (event: EventOccurrence, mouseEvent: React.MouseEvent, hitZone: HitZone) => void;
 }
 
-export class CalendarEvent extends React.Component<CalendarEventProps> {
+interface CalendarEventState {
+  hitZone: HitZone | null;
+}
+
+export class CalendarEvent extends React.Component<CalendarEventProps, CalendarEventState> {
   static displayName = 'CalendarEvent';
 
   static defaultProps = {
@@ -28,9 +59,16 @@ export class CalendarEvent extends React.Component<CalendarEventProps> {
     direction: 'vertical',
     fixedSize: -1,
     concurrentEvents: 1,
+    isDragging: false,
+    edgeZoneSize: 12,
+    isCalendarReadOnly: false,
     onClick: () => {},
     onDoubleClick: () => {},
     onFocused: () => {},
+  };
+
+  state: CalendarEventState = {
+    hitZone: null,
   };
 
   componentDidMount() {
@@ -56,14 +94,27 @@ export class CalendarEvent extends React.Component<CalendarEventProps> {
   }
 
   _getDimensions() {
-    const scopeLen = this.props.scopeEnd - this.props.scopeStart;
-    const duration = this.props.event.end - this.props.event.start;
+    const event = this.props.event;
 
-    let top: number | string = Math.max(
-      (this.props.event.start - this.props.scopeStart) / scopeLen,
-      0
-    );
-    let height: number | string = Math.min((duration - this._overflowBefore()) / scopeLen, 1);
+    // Fractions of the scope: timed events by wall clock down a day column, all-day events by
+    // whole days across the week (remapped in _getStyles).
+    let top: number | string;
+    let height: number | string;
+    if (isTimed(event)) {
+      const span = columnSpan(event, { start: this.props.scopeStart, end: this.props.scopeEnd });
+      top = span.top / DAY_DUR;
+      height = (span.bottom - span.top) / DAY_DUR;
+    } else {
+      const scopeStartDate = CalendarDateUtils.calendarDateFromUnix(this.props.scopeStart);
+      const scopeDays = Math.round((this.props.scopeEnd - this.props.scopeStart) / 86400);
+      const startOffset = CalendarDateUtils.calendarDaysBetween(scopeStartDate, event.startDate);
+      const spanDays = CalendarDateUtils.calendarDaysBetween(event.startDate, event.endDate) + 1;
+      // Mirror the timed branch: clamp the start into scope and drop the pre-scope days from the
+      // span, so an all-day event beginning before the visible week isn't drawn too wide.
+      const overflowDays = Math.max(-startOffset, 0);
+      top = Math.max(startOffset / scopeDays, 0);
+      height = Math.min((spanDays - overflowDays) / scopeDays, 1);
+    }
 
     let width: number | string = 1;
     let left: number | string;
@@ -84,7 +135,10 @@ export class CalendarEvent extends React.Component<CalendarEventProps> {
   }
 
   _getStyles() {
-    let styles: CSSProperties = {};
+    let styles: CSSProperties & {
+      '--event-band-color'?: string;
+      '--event-text-color'?: string;
+    } = {};
     if (this.props.direction === 'vertical') {
       styles = this._getDimensions();
     } else if (this.props.direction === 'horizontal') {
@@ -96,29 +150,261 @@ export class CalendarEvent extends React.Component<CalendarEventProps> {
         top: d.left,
       };
     }
-    styles.backgroundColor = calcColor(this.props.event.calendarId);
+    const colors = calcEventColors(this.props.event.calendarId);
+    // Set CSS custom property for the left band color
+    styles['--event-band-color'] = colors.band;
+    styles['--event-text-color'] = colors.text;
+
+    if (this.props.event.isCancelled) {
+      // Cancelled events get a transparent background with colored border
+      styles.backgroundColor = 'transparent';
+      styles.borderColor = colors.band;
+    } else if (this.props.event.isPending) {
+      // Pending events get a gray background with theme-colored left band
+      styles.backgroundColor = 'rgba(128, 128, 128, 0.15)';
+    } else {
+      // Apple Calendar-style: light pastel background
+      styles.backgroundColor = colors.background;
+    }
     return styles;
   }
 
-  _overflowBefore() {
-    return Math.max(this.props.scopeStart - this.props.event.start, 0);
+  /**
+   * Check if this event can be dragged
+   */
+  _canDrag(): boolean {
+    // Drag preview events are not interactive
+    if (this.props.event.isDragPreview) {
+      return false;
+    }
+    return (
+      canMoveEvent(this.props.event, this.props.isCalendarReadOnly) && !!this.props.onDragStart
+    );
+  }
+
+  /**
+   * Handle mouse move to detect hit zones for resize handles
+   */
+  _onMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!this._canDrag() || !this.props.edgeZoneSize) {
+      return;
+    }
+
+    const bounds = e.currentTarget.getBoundingClientRect();
+    const hitZone = detectHitZone(
+      e.clientX,
+      e.clientY,
+      bounds,
+      this.props.edgeZoneSize,
+      this.props.direction as ViewDirection
+    );
+
+    // Only update state if hit zone changed
+    if (!this.state.hitZone || this.state.hitZone.mode !== hitZone.mode) {
+      this.setState({ hitZone });
+    }
+  };
+
+  /**
+   * Clear hit zone on mouse leave
+   */
+  _onMouseLeave = () => {
+    if (this.state.hitZone) {
+      this.setState({ hitZone: null });
+    }
+  };
+
+  /**
+   * Initiate drag on mouse down
+   */
+  _onMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!this._canDrag() || !this.state.hitZone) {
+      return;
+    }
+
+    // Only handle left mouse button
+    if (e.button !== 0) {
+      return;
+    }
+
+    // Prevent text selection during drag
+    e.preventDefault();
+
+    // No time is passed: the container's hit-test supplies it as this mousedown bubbles.
+    if (this.props.onDragStart) {
+      this.props.onDragStart(this.props.event, e, this.state.hitZone);
+    }
+  };
+
+  /**
+   * Get cursor style based on current hit zone
+   */
+  _getCursorStyle(): string {
+    if (!this._canDrag()) {
+      return 'default';
+    }
+    if (this.state.hitZone) {
+      return this.state.hitZone.cursor;
+    }
+    return 'default';
+  }
+
+  _renderTimeTooltip() {
+    const { event } = this.props;
+    if (!event.isDragPreview) {
+      return null;
+    }
+    const timeString = formatDragPreviewTime(
+      occurrenceStartUnix(event),
+      occurrenceEndUnix(event),
+      event.isAllDay
+    );
+    return <div className="drag-preview-time-tooltip">{timeString}</div>;
+  }
+
+  /**
+   * Render additional event details for vertical (week view) events:
+   * - Meeting URL domain (e.g., "zoom.us")
+   * - Time range for events >= 1 hour (e.g., "12 – 1PM")
+   */
+  _renderEventDetails() {
+    const { event, direction } = this.props;
+
+    // Only show details for vertical (week view) events
+    if (direction !== 'vertical') {
+      return null;
+    }
+
+    const meetingDomain = extractMeetingDomain(event.location, event.description);
+    const timeRange = formatEventTimeRange(
+      occurrenceStartUnix(event),
+      occurrenceEndUnix(event),
+      event.isAllDay
+    );
+    const hasPhysicalLocation = !meetingDomain && !!event.location;
+
+    if (!meetingDomain && !hasPhysicalLocation && !timeRange) {
+      return null;
+    }
+
+    return (
+      <div className="event-details">
+        {meetingDomain && (
+          <span className="event-meeting-link">
+            <svg className="detail-icon" viewBox="0 0 12 12" width="10" height="10">
+              <rect
+                x="1"
+                y="3"
+                width="7"
+                height="6"
+                rx="1"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.3"
+              />
+              <path
+                d="M8 4.5 L11 3 V9 L8 7.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinejoin="round"
+              />
+            </svg>
+            {meetingDomain}
+          </span>
+        )}
+        {hasPhysicalLocation && (
+          <span className="event-location">
+            <svg className="detail-icon" viewBox="0 0 12 12" width="10" height="10">
+              <path
+                d="M6 11 C6 11 2.5 7 2.5 5 A3.5 3.5 0 1 1 9.5 5 C9.5 7 6 11 6 11Z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
+              <circle cx="6" cy="5" r="1.3" fill="currentColor" />
+            </svg>
+            {event.location}
+          </span>
+        )}
+        {timeRange && (
+          <span className="event-time-range">
+            <svg className="detail-icon" viewBox="0 0 12 12" width="10" height="10">
+              <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
+              <polyline
+                points="6,3 6,6 8.5,7.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            {timeRange}
+          </span>
+        )}
+      </div>
+    );
   }
 
   render() {
-    const { direction, event, onClick, onDoubleClick, selected } = this.props;
+    const { direction, event, onClick, onDoubleClick, selected, isDragging } = this.props;
+
+    const classNames = [
+      'calendar-event',
+      direction,
+      selected && 'selected',
+      event.isCancelled && 'cancelled',
+      event.isPending && 'pending',
+      event.isException && 'exception',
+      isDragging && 'dragging',
+      this._canDrag() && 'draggable',
+      event.isDragPreview && 'drag-preview',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    const styles = {
+      ...this._getStyles(),
+      cursor: this._getCursorStyle(),
+    };
+
+    // Drag preview events are not interactive
+    if (event.isDragPreview) {
+      return (
+        <div style={styles} className={classNames}>
+          <span className="default-header" style={{ order: 0 }}>
+            {event.title}
+          </span>
+          {this._renderTimeTooltip()}
+        </div>
+      );
+    }
 
     return (
       <div
         id={event.id}
         tabIndex={0}
-        style={this._getStyles()}
-        className={`calendar-event ${direction} ${selected ? 'selected' : null}`}
-        onClick={e => onClick(e, event)}
-        onDoubleClick={() => onDoubleClick(event)}
+        style={styles}
+        className={classNames}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick(e, event);
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          onDoubleClick(event);
+        }}
+        onMouseMove={this._onMouseMove}
+        onMouseLeave={this._onMouseLeave}
+        onMouseDown={this._onMouseDown}
       >
         <span className="default-header" style={{ order: 0 }}>
-          {event.title}
+          {event.isCancelled ? <s>{event.title}</s> : event.title}
         </span>
+        {this._renderEventDetails()}
+        {event.isRecurring && !event.isCancelled && !event.isException && <RecurringIcon />}
+        {event.isException && <span className="exception-tag">Modified</span>}
         <InjectedComponentSet
           className="event-injected-components"
           style={{ position: 'absolute' }}

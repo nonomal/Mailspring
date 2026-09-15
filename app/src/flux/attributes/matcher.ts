@@ -84,25 +84,14 @@ export class Matcher {
     return this.val;
   }
 
-  evaluate(model: typeof Model) {
+  evaluate(model: Model) {
     let modelValue = model[this.attr.modelKey];
     if (modelValue instanceof Function) {
       modelValue = modelValue();
     }
     const matcherValue = this.val;
 
-    // Given an array of strings or models, and a string or model search value,
-    // will find if a match exists.
-    const modelArrayContainsValue = (array, searchItem) => {
-      const asId = v => (v && v.id ? v.id : v);
-      const search = asId(searchItem);
-      for (const item of array) {
-        if (asId(item) === search) {
-          return true;
-        }
-      }
-      return false;
-    };
+    const asId = (v) => (v && v.id ? v.id : v);
 
     switch (this.comparator) {
       case '=':
@@ -122,12 +111,17 @@ export class Matcher {
         return matcherValue.includes(modelValue);
       case 'not in':
         return !matcherValue.includes(modelValue);
-      case 'contains':
-        return modelArrayContainsValue(modelValue, matcherValue);
-      case 'containsAny':
-        return matcherValue.some(submatcherValue =>
-          modelArrayContainsValue(modelValue, submatcherValue)
-        );
+      case 'contains': {
+        const search = asId(matcherValue);
+        for (const item of modelValue) {
+          if (asId(item) === search) return true;
+        }
+        return false;
+      }
+      case 'containsAny': {
+        const idSet = new Set(modelValue.map(asId));
+        return matcherValue.some((submatcherValue) => idSet.has(asId(submatcherValue)));
+      }
       case 'startsWith':
         return modelValue.startsWith(matcherValue);
       case 'like':
@@ -156,7 +150,7 @@ export class Matcher {
     }
   }
 
-  whereSQL(klass) {
+  whereSQL(klass: typeof Model) {
     const val = this.comparator === 'like' ? `%${this.val}%` : this.val;
     let escaped = null;
 
@@ -194,8 +188,13 @@ export class Matcher {
         }
         return `\`${klass.name}\`.\`${this.attr.tableColumn}\` != ${escaped}`;
       }
-      case 'startsWith':
-        return ' RAISE `TODO`; ';
+      case 'startsWith': {
+        const escapedVal =
+          typeof val === 'string'
+            ? val.replace(/'/g, singleQuoteEscapeSequence).replace(/[\\%_]/g, (c) => `\\${c}`)
+            : val;
+        return `\`${klass.name}\`.\`${this.attr.tableColumn}\` LIKE '${escapedVal}%' ESCAPE '\\'`;
+      }
       case 'contains':
         return `\`${this.joinTableRef()}\`.\`value\` = ${escaped}`;
       case 'containsAny':
@@ -206,7 +205,8 @@ export class Matcher {
   }
 }
 
-class OrCompositeMatcher extends Matcher {
+// Export the composite matchers for use as types
+export class OrCompositeMatcher extends Matcher {
   children: Matcher[];
 
   constructor(children: Matcher[]) {
@@ -222,8 +222,8 @@ class OrCompositeMatcher extends Matcher {
     return null;
   }
 
-  evaluate(model) {
-    return this.children.some(matcher => matcher.evaluate(model));
+  evaluate(model: Model) {
+    return this.children.some((matcher) => matcher.evaluate(model));
   }
 
   joinSQL(klass: typeof Model) {
@@ -238,12 +238,12 @@ class OrCompositeMatcher extends Matcher {
   }
 
   whereSQL(klass: typeof Model) {
-    const wheres = this.children.map(matcher => matcher.whereSQL(klass));
+    const wheres = this.children.map((matcher) => matcher.whereSQL(klass));
     return `(${wheres.join(' OR ')})`;
   }
 }
 
-class AndCompositeMatcher extends Matcher {
+export class AndCompositeMatcher extends Matcher {
   children: Matcher[];
 
   constructor(children: Matcher[]) {
@@ -259,8 +259,8 @@ class AndCompositeMatcher extends Matcher {
     return null;
   }
 
-  evaluate(model) {
-    return this.children.every(m => m.evaluate(model));
+  evaluate(model: Model) {
+    return this.children.every((m) => m.evaluate(model));
   }
 
   joinSQL(klass: typeof Model) {
@@ -275,7 +275,7 @@ class AndCompositeMatcher extends Matcher {
   }
 
   whereSQL(klass: typeof Model) {
-    const wheres = this.children.map(m => m.whereSQL(klass));
+    const wheres = this.children.map((m) => m.whereSQL(klass));
     return `(${wheres.join(' AND ')})`;
   }
 }

@@ -34,6 +34,9 @@ export class Task extends Model {
   source: string;
   error: string;
 
+  /** Set in subclasses to enable undo support. Defaults to falsy (undefined). */
+  canBeUndone: boolean;
+
   // Public: Override the constructor to pass initial args to your Task and
   // initialize instance variables.
   //
@@ -71,7 +74,7 @@ export class Task extends Model {
     delete json.status;
     delete json.version;
     delete json.id;
-    return new this.constructor(json) as this;
+    return new (this.ctor as any)(json) as this;
   }
 
   // Public: code to run if (someone tries to dequeue your task while it is)
@@ -86,13 +89,19 @@ export class Task extends Model {
   // a string, no notification is displayed
   label() {}
 
+  // Public: (optional) A description of the task for undo notifications.
+  // Override in subclasses to provide a meaningful description.
+  description(): string | null {
+    return null;
+  }
+
   // Public: A string displayed to users indicating how many items your
   // task affected.
   numberOfImpactedItems() {
     return 1;
   }
 
-  onError(err) {
+  onError(err: any) {
     // noop
   }
 

@@ -26,6 +26,26 @@ function nodeIsEmpty(node: Node) {
   return false;
 }
 
+// Slate treats a UTF-16 surrogate code unit (0xd800 - 0xdfff, whether paired or a
+// stray unpaired half) as the first code unit of a 2-code-unit-wide character.
+// Mirrors slate's own TextUtils.isSurrogate.
+function isSurrogateCodeUnit(code: number) {
+  return code >= 0xd800 && code <= 0xdfff;
+}
+
+// Returns whether the single code unit immediately before `point` is a surrogate,
+// walking back into the previous text node if `point` sits at the start of its own.
+function isSurrogateCodeUnitBeforeCursor(document: any, point: any) {
+  let node = document.getDescendant(point.key);
+  let offset = point.offset;
+  while (node && offset === 0) {
+    node = document.getPreviousText(node.key);
+    offset = node ? node.text.length : 0;
+  }
+  if (!node) return false;
+  return isSurrogateCodeUnit(node.text.charCodeAt(offset - 1));
+}
+
 function isBlockTypeOrWithinType(value: Value, type: string) {
   if (!value.focusBlock) {
     return false;
@@ -33,17 +53,17 @@ function isBlockTypeOrWithinType(value: Value, type: string) {
   const isMe = value.focusBlock.type === type;
   const isParent = value.document
     .getAncestors(value.focusBlock.key)
-    .find(b => b.object === 'block' && b.type === type);
+    .find((b) => b.object === 'block' && b.type === type);
 
   return !!(isMe || isParent);
 }
 
-function toggleBlockTypeWithBreakout(editor: Editor, type) {
+function toggleBlockTypeWithBreakout(editor: Editor, type: string) {
   if (!editor.value.focusBlock) return;
 
   const ancestors = editor.value.document.getAncestors(editor.value.focusBlock.key);
 
-  let idx = ancestors.findIndex(b => b.object === 'block' && b.type === type);
+  let idx = ancestors.findIndex((b) => b.object === 'block' && b.type === type);
   if (idx === -1 && editor.value.focusBlock.type === type) {
     idx = ancestors.size - 1;
   }
@@ -95,10 +115,14 @@ export const BLOCK_CONFIG: {
   blockquote: {
     type: BLOCKQUOTE_TYPE,
     tagNames: ['blockquote'],
-    render: props => <blockquote {...props.attributes}>{props.children}</blockquote>,
+    render: (props) => (
+      <blockquote {...props.attributes} spellCheck={false}>
+        {props.children}
+      </blockquote>
+    ),
     button: {
       iconClass: 'fa fa-quote-left',
-      isActive: value => {
+      isActive: (value) => {
         return isBlockTypeOrWithinType(value, BLOCK_CONFIG.blockquote.type);
       },
       onToggle: (editor: Editor, active) => {
@@ -109,8 +133,8 @@ export const BLOCK_CONFIG: {
   code: {
     type: 'code',
     tagNames: ['pre'],
-    render: props => (
-      <code {...props.attributes}>
+    render: (props) => (
+      <code {...props.attributes} spellCheck={false}>
         <pre
           style={{
             backgroundColor: `rgba(0,0,0,0.05)`,
@@ -122,7 +146,7 @@ export const BLOCK_CONFIG: {
       </code>
     ),
     button: {
-      isActive: value => value.focusBlock && value.focusBlock.type === BLOCK_CONFIG.code.type,
+      isActive: (value) => value.focusBlock && value.focusBlock.type === BLOCK_CONFIG.code.type,
       iconClass: 'fa fa-sticky-note-o',
       onToggle: (editor, active) => {
         if (active) {
@@ -135,7 +159,7 @@ export const BLOCK_CONFIG: {
           const texts = value.document
             .getTextsAtRange(value.selection as any)
             .toArray()
-            .map(t => {
+            .map((t) => {
               if (t.key === value.selection.anchor.key) {
                 return value.selection.isBackward
                   ? t.text.substr(0, value.selection.anchor.offset)
@@ -158,8 +182,8 @@ export const BLOCK_CONFIG: {
           // Remove leading spaces that are present on every line
           let minLeadingSpaces = 1000;
           texts
-            .filter(text => text.trim().length > 0)
-            .forEach(text => {
+            .filter((text) => text.trim().length > 0)
+            .forEach((text) => {
               const match = /^ +/.exec(text);
               if (match === null) {
                 minLeadingSpaces = 0;
@@ -168,7 +192,7 @@ export const BLOCK_CONFIG: {
               }
             });
           // Join the text blocks together into a single string
-          const text = texts.map(t => t.substr(minLeadingSpaces)).join('\n');
+          const text = texts.map((t) => t.substr(minLeadingSpaces)).join('\n');
 
           // Delete the selection and insert a single code block with the text
           return editor
@@ -183,10 +207,10 @@ export const BLOCK_CONFIG: {
   ol_list: {
     type: 'ol_list',
     tagNames: ['ol'],
-    render: props => <ol {...props.attributes}>{props.children}</ol>,
+    render: (props) => <ol {...props.attributes}>{props.children}</ol>,
     button: {
       iconClass: 'fa fa-list-ol',
-      isActive: value => {
+      isActive: (value) => {
         const list = EditListPlugin.utils.getCurrentList(value);
         return list && list.type === BLOCK_CONFIG.ol_list.type;
       },
@@ -199,10 +223,10 @@ export const BLOCK_CONFIG: {
   ul_list: {
     type: 'ul_list',
     tagNames: ['ul'],
-    render: props => <ul {...props.attributes}>{props.children}</ul>,
+    render: (props) => <ul {...props.attributes}>{props.children}</ul>,
     button: {
       iconClass: 'fa fa-list-ul',
-      isActive: value => {
+      isActive: (value) => {
         const list = EditListPlugin.utils.getCurrentList(value);
         return list && list.type === BLOCK_CONFIG.ul_list.type;
       },
@@ -215,17 +239,17 @@ export const BLOCK_CONFIG: {
   list_item: {
     type: 'list_item',
     tagNames: ['li'],
-    render: props => <li {...props.attributes}>{props.children}</li>,
+    render: (props) => <li {...props.attributes}>{props.children}</li>,
   },
   heading_one: {
     type: 'heading_one',
     tagNames: ['h1'],
-    render: props => <h1 {...props.attributes}>{props.children}</h1>,
+    render: (props) => <h1 {...props.attributes}>{props.children}</h1>,
   },
   heading_two: {
     type: 'heading_two',
     tagNames: ['h2'],
-    render: props => <h2 {...props.attributes}>{props.children}</h2>,
+    render: (props) => <h2 {...props.attributes}>{props.children}</h2>,
   },
 };
 
@@ -244,7 +268,7 @@ const rules = [
   {
     deserialize(el: HTMLElement, next) {
       const tagName = el.tagName.toLowerCase();
-      let config = Object.values(BLOCK_CONFIG).find(c => c.tagNames.includes(tagName));
+      let config = Object.values(BLOCK_CONFIG).find((c) => c.tagNames.includes(tagName));
 
       // apply a few special rules:
       // block elements with monospace font are translated to <code> blocks
@@ -278,7 +302,7 @@ const rules = [
         };
       }
     },
-    serialize(obj, children) {
+    serialize(obj: any, children: any) {
       if (obj.object !== 'block') return;
       return renderNode({ node: obj, children, targetIsHTML: true });
     },
@@ -288,7 +312,7 @@ const rules = [
 // support functions
 
 export function hasBlockquote(value: Value) {
-  const nodeHasBlockquote = node => {
+  const nodeHasBlockquote = (node) => {
     if (!node.nodes) return false;
     for (const childNode of node.nodes.toArray()) {
       if (childNode.type === BLOCK_CONFIG.blockquote.type || nodeHasBlockquote(childNode)) {
@@ -300,7 +324,7 @@ export function hasBlockquote(value: Value) {
 }
 
 export function hasNonTrailingBlockquote(value: Value) {
-  const nodeHasNonTrailingBlockquote = node => {
+  const nodeHasNonTrailingBlockquote = (node) => {
     if (!node.nodes) return false;
     let found = false;
     for (const block of node.nodes.toArray()) {
@@ -318,7 +342,7 @@ export function hasNonTrailingBlockquote(value: Value) {
 
 export function allNodesInBFSOrder(value: Value) {
   const all = [];
-  const collect = node => {
+  const collect = (node) => {
     if (!node.nodes) return;
     all.push(node);
     node.nodes.toArray().forEach(collect);
@@ -367,7 +391,7 @@ export function hideQuotedTextByDefault(draft: MessageWithEditorState) {
 
 const MailspringBaseBlockPlugin: ComposerEditorPlugin = {
   toolbarComponents: Object.values(BLOCK_CONFIG)
-    .filter(config => config.button)
+    .filter((config) => config.button)
     .map(BuildToggleButton),
   renderNode,
   appCommands: {
@@ -414,7 +438,7 @@ const plugins: ComposerEditorPlugin[] = [
 
   // Return creates soft newlines in code blocks
   When({
-    when: value => value.blocks.some(b => b.type === BLOCK_CONFIG.code.type),
+    when: (value) => value.blocks.some((b) => b.type === BLOCK_CONFIG.code.type),
     plugin: SoftBreak(),
   }),
 
@@ -436,9 +460,28 @@ const plugins: ComposerEditorPlugin[] = [
       ) {
         event.preventDefault();
         return;
-      } else {
-        return next();
       }
+
+      // Slate's Backspace command deletes one *character* at a time, and a character
+      // is two UTF-16 code units wide when the code unit immediately before the cursor
+      // is a surrogate (eg: a surrogate pair, or a stray unpaired surrogate left behind
+      // by mangled HTML). To find that character, it walks backward across text nodes
+      // counting code units until it has consumed enough of them - but if the document
+      // contains fewer code units before the cursor than it needs, it walks off the
+      // start of the document and crashes trying to read `.text` of a node that doesn't
+      // exist. Guard only that specific case (not ordinary single-code-unit backspaces,
+      // which other plugins like the list editor need to see) by deleting just the
+      // stray code unit ourselves instead of handing off to Slate's normal command.
+      if (selection.isCollapsed && selection.start && selection.start.key) {
+        const before = document.getOffset(selection.start.key) + selection.start.offset;
+        if (before === 1 && isSurrogateCodeUnitBeforeCursor(document, selection.start)) {
+          event.preventDefault();
+          editor.deleteBackward(before);
+          return;
+        }
+      }
+
+      return next();
     },
   },
 

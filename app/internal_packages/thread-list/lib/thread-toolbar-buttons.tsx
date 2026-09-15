@@ -1,7 +1,6 @@
 import React from 'react';
-import PropTypes from 'prop-types';
 import classNames from 'classnames';
-import { RetinaImg, CreateButtonGroup, BindGlobalCommands } from 'mailspring-component-kit';
+import { RetinaImg, BindGlobalCommands, RovingTabIndexToolbar } from 'mailspring-component-kit';
 import {
   localized,
   Actions,
@@ -18,10 +17,6 @@ import ThreadListStore from './thread-list-store';
 export class ArchiveButton extends React.Component<{ items: Thread[] }> {
   static displayName = 'ArchiveButton';
   static containerRequired = false;
-
-  static propTypes = {
-    items: PropTypes.array.isRequired,
-  };
 
   _onArchive = (event?: React.MouseEvent) => {
     const tasks = TaskFactory.tasksForArchiving({
@@ -48,9 +43,14 @@ export class ArchiveButton extends React.Component<{ items: Thread[] }> {
           tabIndex={-1}
           className="btn btn-toolbar"
           title={localized('Archive')}
+          aria-label={localized('Archive')}
           onClick={this._onArchive}
         >
-          <RetinaImg name="toolbar-archive.png" mode={RetinaImg.Mode.ContentIsMask} />
+          <RetinaImg
+            name="toolbar-archive.png"
+            mode={RetinaImg.Mode.ContentIsMask}
+            aria-hidden="true"
+          />
         </button>
       </BindGlobalCommands>
     );
@@ -60,10 +60,6 @@ export class ArchiveButton extends React.Component<{ items: Thread[] }> {
 export class TrashButton extends React.Component<{ items: Thread[] }> {
   static displayName = 'TrashButton';
   static containerRequired = false;
-
-  static propTypes = {
-    items: PropTypes.array.isRequired,
-  };
 
   _onRemove = (event?: React.MouseEvent) => {
     const tasks = TaskFactory.tasksForMovingToTrash({
@@ -90,9 +86,14 @@ export class TrashButton extends React.Component<{ items: Thread[] }> {
           tabIndex={-1}
           className="btn btn-toolbar"
           title={localized('Move to Trash')}
+          aria-label={localized('Move to Trash')}
           onClick={this._onRemove}
         >
-          <RetinaImg name="toolbar-trash.png" mode={RetinaImg.Mode.ContentIsMask} />
+          <RetinaImg
+            name="toolbar-trash.png"
+            mode={RetinaImg.Mode.ContentIsMask}
+            aria-hidden="true"
+          />
         </button>
       </BindGlobalCommands>
     );
@@ -142,7 +143,7 @@ class HiddenGenericRemoveButton extends React.Component<{ items: Thread[] }> {
 class HiddenToggleImportantButton extends React.Component<{ items: Thread[] }> {
   static displayName = 'HiddenToggleImportantButton';
 
-  _onSetImportant = important => {
+  _onSetImportant = (important: boolean) => {
     Actions.queueTasks(
       TaskFactory.tasksForThreadsByAccountId(this.props.items, (accountThreads, accountId) => {
         return new ChangeLabelsTask({
@@ -169,8 +170,8 @@ class HiddenToggleImportantButton extends React.Component<{ items: Thread[] }> {
       return false;
     }
 
-    const allImportant = this.props.items.every(item =>
-      item.labels.some(c => c.role === 'important')
+    const allImportant = this.props.items.every((item) =>
+      item.labels.some((c) => c.role === 'important')
     );
 
     return (
@@ -191,10 +192,6 @@ class HiddenToggleImportantButton extends React.Component<{ items: Thread[] }> {
 export class MarkAsSpamButton extends React.Component<{ items: Thread[] }> {
   static displayName = 'MarkAsSpamButton';
   static containerRequired = false;
-
-  static propTypes = {
-    items: PropTypes.array.isRequired,
-  };
 
   _onNotSpam = (event?: React.MouseEvent) => {
     // TODO BG REPLACE TASK FACTORY
@@ -224,7 +221,7 @@ export class MarkAsSpamButton extends React.Component<{ items: Thread[] }> {
   };
 
   render() {
-    const allInSpam = this.props.items.every(item => item.folders.some(c => c.role === 'spam'));
+    const allInSpam = this.props.items.every((item) => item.folders.some((c) => c.role === 'spam'));
 
     if (allInSpam) {
       return (
@@ -236,9 +233,14 @@ export class MarkAsSpamButton extends React.Component<{ items: Thread[] }> {
             tabIndex={-1}
             className="btn btn-toolbar"
             title={localized('Not Spam')}
+            aria-label={localized('Not Spam')}
             onClick={this._onNotSpam}
           >
-            <RetinaImg name="toolbar-not-spam.png" mode={RetinaImg.Mode.ContentIsMask} />
+            <RetinaImg
+              name="toolbar-not-spam.png"
+              mode={RetinaImg.Mode.ContentIsMask}
+              aria-hidden="true"
+            />
           </button>
         </BindGlobalCommands>
       );
@@ -257,9 +259,14 @@ export class MarkAsSpamButton extends React.Component<{ items: Thread[] }> {
           tabIndex={-1}
           className="btn btn-toolbar"
           title={localized('Mark as Spam')}
+          aria-label={localized('Mark as Spam')}
           onClick={this._onMarkAsSpam}
         >
-          <RetinaImg name="toolbar-spam.png" mode={RetinaImg.Mode.ContentIsMask} />
+          <RetinaImg
+            name="toolbar-spam.png"
+            mode={RetinaImg.Mode.ContentIsMask}
+            aria-hidden="true"
+          />
         </button>
       </BindGlobalCommands>
     );
@@ -269,10 +276,6 @@ export class MarkAsSpamButton extends React.Component<{ items: Thread[] }> {
 export class ToggleStarredButton extends React.Component<{ items: Thread[] }> {
   static displayName = 'ToggleStarredButton';
   static containerRequired = false;
-
-  static propTypes = {
-    items: PropTypes.array.isRequired,
-  };
 
   _onStar = (event?: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
     Actions.queueTask(
@@ -288,14 +291,20 @@ export class ToggleStarredButton extends React.Component<{ items: Thread[] }> {
   };
 
   render() {
-    const postClickStarredState = this.props.items.every(t => t.starred === false);
+    const postClickStarredState = this.props.items.every((t) => t.starred === false);
     const title = postClickStarredState ? localized('Star') : localized('Unstar');
     const imageName = postClickStarredState ? 'toolbar-star.png' : 'toolbar-star-selected.png';
 
     return (
       <BindGlobalCommands commands={{ 'core:star-item': () => this._onStar() }}>
-        <button tabIndex={-1} className="btn btn-toolbar" title={title} onClick={this._onStar}>
-          <RetinaImg name={imageName} mode={RetinaImg.Mode.ContentIsMask} />
+        <button
+          tabIndex={-1}
+          className="btn btn-toolbar"
+          title={title}
+          aria-label={title}
+          onClick={this._onStar}
+        >
+          <RetinaImg name={imageName} mode={RetinaImg.Mode.ContentIsMask} aria-hidden="true" />
         </button>
       </BindGlobalCommands>
     );
@@ -306,18 +315,14 @@ export class ToggleUnreadButton extends React.Component<{ items: Thread[] }> {
   static displayName = 'ToggleUnreadButton';
   static containerRequired = false;
 
-  static propTypes = {
-    items: PropTypes.array.isRequired,
-  };
-
-  _onClick = event => {
-    const targetUnread = this.props.items.every(t => t.unread === false);
+  _onClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    const targetUnread = this.props.items.every((t) => t.unread === false);
     this._onChangeUnread(targetUnread);
     event.stopPropagation();
     return;
   };
 
-  _onChangeUnread = targetUnread => {
+  _onChangeUnread = (targetUnread: boolean) => {
     Actions.queueTask(
       TaskFactory.taskForSettingUnread({
         threads: this.props.items,
@@ -329,9 +334,10 @@ export class ToggleUnreadButton extends React.Component<{ items: Thread[] }> {
   };
 
   render() {
-    const targetUnread = this.props.items.every(t => t.unread === false);
+    const targetUnread = this.props.items.every((t) => t.unread === false);
     const fragment = targetUnread ? localized('Unread') : localized('Read');
     const key = targetUnread ? 'unread' : 'read';
+    const label = localized(`Mark as %@`, fragment);
 
     return (
       <BindGlobalCommands
@@ -345,10 +351,15 @@ export class ToggleUnreadButton extends React.Component<{ items: Thread[] }> {
         <button
           tabIndex={-1}
           className="btn btn-toolbar"
-          title={localized(`Mark as %@`, fragment)}
+          title={label}
+          aria-label={label}
           onClick={this._onClick}
         >
-          <RetinaImg name={`toolbar-markas${key}.png`} mode={RetinaImg.Mode.ContentIsMask} />
+          <RetinaImg
+            name={`toolbar-markas${key}.png`}
+            mode={RetinaImg.Mode.ContentIsMask}
+            aria-hidden="true"
+          />
         </button>
       </BindGlobalCommands>
     );
@@ -367,13 +378,6 @@ class ThreadArrowButton extends React.Component<
   },
   ThreadArrowButtonState
 > {
-  static propTypes = {
-    getStateFromStores: PropTypes.func,
-    direction: PropTypes.string,
-    command: PropTypes.string,
-    title: PropTypes.string,
-  };
-
   _unsubscribe?: () => void;
   _unsubscribe_focus?: () => void;
 
@@ -392,12 +396,19 @@ class ThreadArrowButton extends React.Component<
     this._unsubscribe_focus();
   }
 
-  _onClick = () => {
+  _onClick = (e?: React.KeyboardEvent | React.MouseEvent) => {
     if (this.state.disabled) {
       return;
     }
     AppEnv.commands.dispatch(this.props.command);
     return;
+  };
+
+  _onKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.key === 'Enter' || e.key === ' ') && !this.state.disabled) {
+      e.preventDefault();
+      this._onClick(e);
+    }
   };
 
   _onStoreChange = () => {
@@ -406,31 +417,62 @@ class ThreadArrowButton extends React.Component<
 
   render() {
     const { direction, title } = this.props;
+    const { disabled } = this.state;
     const classes = classNames({
       'btn-icon': true,
       'message-toolbar-arrow': true,
-      disabled: this.state.disabled,
+      disabled: disabled,
     });
 
     return (
-      <div className={`${classes} ${direction}`} onClick={this._onClick} title={title}>
-        <RetinaImg name={`toolbar-${direction}-arrow.png`} mode={RetinaImg.Mode.ContentIsMask} />
+      <div
+        className={`${classes} ${direction}`}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+        aria-label={title}
+        aria-disabled={disabled}
+        onClick={this._onClick}
+        onKeyDown={this._onKeyDown}
+        title={title}
+      >
+        <RetinaImg
+          name={`toolbar-${direction}-arrow.png`}
+          mode={RetinaImg.Mode.ContentIsMask}
+          aria-hidden="true"
+        />
       </div>
     );
   }
 }
 
-export const FlagButtons = CreateButtonGroup(
-  'FlagButtons',
-  [ToggleStarredButton, HiddenToggleImportantButton, ToggleUnreadButton],
-  { order: -103 }
+export const FlagButtons = (props: { items: Thread[] }) => (
+  <RovingTabIndexToolbar
+    label={localized('Flag Actions')}
+    className="button-group"
+    style={{ order: -103 } as React.CSSProperties}
+  >
+    <ToggleStarredButton {...props} />
+    <HiddenToggleImportantButton {...props} />
+    <ToggleUnreadButton {...props} />
+  </RovingTabIndexToolbar>
 );
+FlagButtons.displayName = 'FlagButtons';
+(FlagButtons as any).containerRequired = false;
 
-export const MoveButtons = CreateButtonGroup(
-  'MoveButtons',
-  [ArchiveButton, MarkAsSpamButton, HiddenGenericRemoveButton, TrashButton],
-  { order: -107 }
+export const MoveButtons = (props: { items: Thread[] }) => (
+  <RovingTabIndexToolbar
+    label={localized('Move Actions')}
+    className="button-group"
+    style={{ order: -107 } as React.CSSProperties}
+  >
+    <ArchiveButton {...props} />
+    <MarkAsSpamButton {...props} />
+    <HiddenGenericRemoveButton {...props} />
+    <TrashButton {...props} />
+  </RovingTabIndexToolbar>
 );
+MoveButtons.displayName = 'MoveButtons';
+(MoveButtons as any).containerRequired = false;
 
 export const DownButton = () => {
   const getStateFromStores = () => {

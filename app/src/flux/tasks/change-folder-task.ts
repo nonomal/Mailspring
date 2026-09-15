@@ -2,8 +2,8 @@ import { ChangeMailTask } from './change-mail-task';
 import * as Attributes from '../attributes';
 import { Folder } from '../models/folder';
 import { localized } from '../../intl';
-import { Message } from '../models/Message';
-import { Thread } from '../models/Thread';
+import { Message } from '../models/message';
+import { Thread } from '../models/thread';
 import { AttributeValues } from '../models/model';
 
 // Public: Create a new task to apply labels to a message or thread.
@@ -42,14 +42,17 @@ export class ChangeFolderTask extends ChangeMailTask {
   ) {
     if (!data.previousFolder) {
       const folders = [];
+      const seenFolderIds = new Set<string>();
       for (const t of data.threads || []) {
-        const f = t.folders.find(f => f.id !== data.folder.id) || t.folders[0];
-        if (!folders.find(other => other.id === f.id)) {
+        const f = t.folders?.find((f) => f?.id !== data.folder?.id) || t.folders?.[0];
+        if (f && !seenFolderIds.has(f.id)) {
+          seenFolderIds.add(f.id);
           folders.push(f);
         }
       }
       for (const m of data.messages || []) {
-        if (!folders.find(other => other.id === m.folder.id)) {
+        if (!seenFolderIds.has(m.folder.id)) {
+          seenFolderIds.add(m.folder.id);
           folders.push(m.folder);
         }
       }
@@ -69,7 +72,9 @@ export class ChangeFolderTask extends ChangeMailTask {
     super(data);
 
     if (this.folder && !(this.folder instanceof Folder)) {
-      throw new Error('ChangeFolderTask: You must provide a single folder.');
+      throw new Error(
+        `ChangeFolderTask: You must provide a single folder. Got ${typeof this.folder}: ${JSON.stringify(this.folder)}`
+      );
     }
   }
 

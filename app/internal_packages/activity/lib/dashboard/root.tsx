@@ -1,6 +1,5 @@
 import fs from 'fs';
 import React from 'react';
-import PropTypes from 'prop-types';
 import { shell } from 'electron';
 import { ScrollRegion, ListensToFluxStore, RetinaImg } from 'mailspring-component-kit';
 import {
@@ -79,11 +78,6 @@ class RootWithTimespan extends React.Component<
 > {
   static displayName = 'ActivityDashboardRootWithTimespan';
 
-  static propTypes = {
-    timespan: PropTypes.object,
-    accountIds: PropTypes.arrayOf(PropTypes.string),
-  };
-
   _mounted = false;
 
   constructor(props) {
@@ -91,11 +85,16 @@ class RootWithTimespan extends React.Component<
     this.state = this.getLoadingState(props);
   }
 
-  componentWillReceiveProps(nextProps) {
-    this.setState(this.getLoadingState(nextProps), () => this._onComputeMetrics());
+  componentDidUpdate(prevProps: { timespan: Timespan; accountIds: string[] }) {
+    if (
+      prevProps.timespan !== this.props.timespan ||
+      prevProps.accountIds !== this.props.accountIds
+    ) {
+      this.setState(this.getLoadingState(this.props), () => this._onComputeMetrics());
+    }
   }
 
-  getLoadingState({ timespan }) {
+  getLoadingState({ timespan }: { timespan: Timespan }) {
     return {
       version: 0,
       loading: true,
@@ -121,7 +120,12 @@ class RootWithTimespan extends React.Component<
     this._mounted = false;
   }
 
-  async _forEachMessageIn(accountIds, startUnix, endUnix, callback) {
+  async _forEachMessageIn(
+    accountIds: string[],
+    startUnix: number,
+    endUnix: number,
+    callback: (message: Message, messageUnix: number) => void | Promise<void>
+  ) {
     let chunkStartUnix = startUnix;
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -214,7 +218,7 @@ class RootWithTimespan extends React.Component<
       if (linkM && linkM.tracked && linkM.links instanceof Array) {
         threadStats[message.threadId].tracked = true;
         linkTrackingEnabled += 1;
-        if (linkM.links.some(l => l.click_count > 0)) {
+        if (linkM.links.some((l) => l.click_count > 0)) {
           threadStats[message.threadId].clicked = true;
           linkTrackingTriggered += 1;
         }
@@ -222,7 +226,7 @@ class RootWithTimespan extends React.Component<
       return;
     });
 
-    const outboundThreadStats = Object.values(threadStats).filter(stats => stats.outbound);
+    const outboundThreadStats = Object.values(threadStats).filter((stats) => stats.outbound);
 
     // compute total reply rate for all sent messages
     let threadsOutbound = 0;
@@ -260,7 +264,7 @@ class RootWithTimespan extends React.Component<
     }
 
     const bySubjectSorted = Object.values(bySubject)
-      .filter(a => a.count > 1)
+      .filter((a) => a.count > 1)
       .sort((a, b) => b.opens - a.opens);
 
     // Okay! Make sure we've taken at least 1500ms and then fade in the stats
@@ -289,8 +293,8 @@ class RootWithTimespan extends React.Component<
     }, animationDelay);
   };
 
-  _onFetchChunk(accountIds, startUnix, endUnix) {
-    return new Promise<Message[]>(resolve => {
+  _onFetchChunk(accountIds: string[], startUnix: number, endUnix: number) {
+    return new Promise<Message[]>((resolve) => {
       window.requestAnimationFrame(() => {
         DatabaseStore.findAll<Message>(Message)
           .background()
@@ -309,7 +313,7 @@ class RootWithTimespan extends React.Component<
   };
 
   _onExport = () => {
-    AppEnv.showSaveDialog({ defaultPath: 'report.csv' }, async filepath => {
+    AppEnv.showSaveDialog({ defaultPath: 'report.csv' }, async (filepath) => {
       if (!filepath) {
         return;
       }
@@ -318,10 +322,10 @@ class RootWithTimespan extends React.Component<
         timespan: { startDate, endDate },
         accountIds,
       } = this.props;
-      const esc = cell => '"' + `${cell}`.replace(/"/g, '""') + '"';
+      const esc = (cell) => '"' + `${cell}`.replace(/"/g, '""') + '"';
       const ws = fs.createWriteStream(filepath);
 
-      ws.on('error', err => {
+      ws.on('error', (err) => {
         AppEnv.showErrorDialog({
           title: localized('Export Failed'),
           message: localized(
@@ -336,7 +340,7 @@ class RootWithTimespan extends React.Component<
 
       ws.write('Sent,From,To,Cc,Bcc,Date,Subject,Opens,Clicks\n');
 
-      await this._forEachMessageIn(accountIds, startDate.unix(), endDate.unix(), message => {
+      await this._forEachMessageIn(accountIds, startDate.unix(), endDate.unix(), (message) => {
         let sent = 'false';
         let opens = '';
         let clicks = '';
@@ -366,7 +370,7 @@ class RootWithTimespan extends React.Component<
           `${esc(message.subject)},` +
           `${esc(opens)},${esc(clicks)}\n`;
 
-        return new Promise(resolve => ws.write(line, resolve));
+        return new Promise<void>((resolve) => ws.write(line, () => resolve()));
       });
       ws.close();
     });
@@ -498,17 +502,13 @@ class RootWithTimespan extends React.Component<
 class Root extends React.Component<{ accountIds: string[] }, { timespan: Timespan }> {
   static displayName = 'ActivityDashboardRoot';
 
-  static propTypes = {
-    accountIds: PropTypes.arrayOf(PropTypes.string),
-  };
-
   constructor(props) {
     super(props);
 
     this.state = this.getStateForTimespanId(DEFAULT_TIMESPAN_ID);
   }
 
-  getStateForTimespanId(timespanId) {
+  getStateForTimespanId(timespanId: string) {
     const [startDate, endDate] = getTimespanStartEnd(timespanId);
     // if the difference in days is 1, we need to display [0, 1] = 2 items
     const days = endDate.diff(startDate, 'days') + 1;
@@ -522,7 +522,7 @@ class Root extends React.Component<{ accountIds: string[] }, { timespan: Timespa
     };
   }
 
-  _onChangeTimespan = timespanId => {
+  _onChangeTimespan = (timespanId: string) => {
     this.setState(this.getStateForTimespanId(timespanId));
   };
 
@@ -548,7 +548,7 @@ class Root extends React.Component<{ accountIds: string[] }, { timespan: Timespa
 }
 export default ListensToFluxStore(Root, {
   stores: [FocusedPerspectiveStore],
-  getStateFromStores: props => {
+  getStateFromStores: (props) => {
     return {
       ...props,
       accountIds: FocusedPerspectiveStore.current().accountIds,

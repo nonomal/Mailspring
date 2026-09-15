@@ -11,7 +11,7 @@ import AccountProviders from '../account-providers';
 
 let didWarnAboutGmailIMAP = false;
 
-const CreatePageForForm = FormComponent => {
+const CreatePageForForm = (FormComponent: React.ComponentType<any> & Record<string, any>) => {
   return class Composed extends React.Component<
     { account: Account },
     {
@@ -121,7 +121,7 @@ const CreatePageForForm = FormComponent => {
       }
     };
 
-    onFieldKeyPress = event => {
+    onFieldKeyPress = (event: React.KeyboardEvent<HTMLElement>) => {
       if (!this._isValid()) {
         return;
       }
@@ -165,17 +165,25 @@ const CreatePageForForm = FormComponent => {
       this.setState({ submitting: true });
 
       finalizeAndValidateAccount(account)
-        .then(validated => {
+        .then((validated) => {
           OnboardingActions.moveToPage('account-onboarding-success');
           OnboardingActions.finishAndAddAccount(validated);
         })
-        .catch(err => {
+        .catch((err) => {
           // If we're connecting from the `basic` settings page with an IMAP account,
           // the settings are from a template. If authentication fails, move the user
           // to the full settings since our guesses may have been wrong.
           // TODO: Potentially show Authentication Errors on this simple screen?
           const isBasicForm = FormComponent.displayName === 'AccountBasicSettingsForm';
           if (account.provider === 'imap' && isBasicForm) {
+            // Advice means a rejected TLS handshake, which "Allow insecure SSL" fixes.
+            // Both services, since an IMAP failure short-circuits before SMTP is tested.
+            if (err.errorAdvice) {
+              const relaxed = account.clone();
+              relaxed.settings.imap_allow_insecure_ssl = true;
+              relaxed.settings.smtp_allow_insecure_ssl = true;
+              OnboardingActions.setAccount(relaxed);
+            }
             OnboardingActions.moveToPage('account-settings-imap');
             return;
           }
@@ -313,7 +321,7 @@ const CreatePageForForm = FormComponent => {
           />
           {this._renderCredentialsNote()}
           <FormComponent
-            ref={el => {
+            ref={(el) => {
               this._formEl = el;
             }}
             account={account}

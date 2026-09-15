@@ -1,7 +1,8 @@
 /* eslint import/no-dynamic-require:0 */
 /**
- * NOTE: Due to path issues, this script must be run outside of grunt
- * directly from a powershell command.
+ * Code signing is handled separately by the Azure Trusted Signing action in
+ * the GitHub workflow. This script creates an unsigned installer which is
+ * then signed by the workflow after creation.
  */
 const path = require('path');
 const { createWindowsInstaller } = require('electron-winstaller');
@@ -14,13 +15,12 @@ const config = {
   outputDirectory: path.join(appDir, 'dist'),
   appDirectory: path.join(appDir, 'dist', 'mailspring-win32-x64'),
   loadingGif: path.join(appDir, 'build', 'resources', 'win', 'loading.gif'),
-  iconUrl: 'http://mailspring-builds.s3.amazonaws.com/assets/mailspring.ico',
-  certificateFile: process.env.WINDOWS_CODESIGN_CERT,
+  iconUrl: 'http://mailspring-builds.s3.amazonaws.com/assets/mailspring-square.ico',
   description: 'Mailspring',
   version: version,
   title: 'Mailspring',
   authors: 'Foundry 376, LLC',
-  setupIcon: path.join(appDir, 'build', 'resources', 'win', 'mailspring.ico'),
+  setupIcon: path.join(appDir, 'build', 'resources', 'win', 'mailspring-square.ico'),
   setupExe: 'MailspringSetup.exe',
   exe: 'mailspring.exe',
   name: 'Mailspring',
@@ -28,9 +28,6 @@ const config = {
 
 console.log(config);
 console.log('---> Starting');
-
-// avoid logging the certificate password
-config.certificatePassword = process.env.WINDOWS_CODESIGN_CERT_PASSWORD;
 
 createWindowsInstaller(config)
   .then(() => {

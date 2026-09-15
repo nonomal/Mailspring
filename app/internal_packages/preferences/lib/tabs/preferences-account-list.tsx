@@ -2,7 +2,6 @@ import React, { Component, CSSProperties } from 'react';
 import { localized, Account } from 'mailspring-exports';
 import { RetinaImg, Flexbox, EditableList } from 'mailspring-component-kit';
 import classnames from 'classnames';
-import PropTypes from 'prop-types';
 
 interface PreferencesAccountListProps {
   accounts: Account[];
@@ -14,15 +13,6 @@ interface PreferencesAccountListProps {
 }
 
 class PreferencesAccountList extends Component<PreferencesAccountListProps> {
-  static propTypes = {
-    accounts: PropTypes.array,
-    selected: PropTypes.object,
-    onAddAccount: PropTypes.func.isRequired,
-    onReorderAccount: PropTypes.func.isRequired,
-    onSelectAccount: PropTypes.func.isRequired,
-    onRemoveAccount: PropTypes.func.isRequired,
-  };
-
   _renderAccountStateIcon(account: Account) {
     if (account.syncState !== 'running') {
       return (
@@ -42,15 +32,19 @@ class PreferencesAccountList extends Component<PreferencesAccountListProps> {
     const label = account.label;
     const accountSub = `${account.name || localized('No name provided')} <${account.emailAddress}>`;
     const syncError = account.hasSyncStateError();
-    let style: CSSProperties = {}
+    let style: CSSProperties = {};
     if (account.color) {
-      style = { borderLeftColor: account.color, borderLeftWidth: '8px', borderLeftStyle: 'solid' }
+      style = { borderLeftColor: account.color, borderLeftWidth: '8px', borderLeftStyle: 'solid' };
     } else {
-      style = { marginLeft: '8px' }
+      style = { marginLeft: '8px' };
     }
 
     return (
-      <div style={style} className={classnames({ account: true, 'sync-error': syncError })} key={account.id}>
+      <div
+        style={style}
+        className={classnames({ account: true, 'sync-error': syncError })}
+        key={account.id}
+      >
         <Flexbox direction="row" style={{ alignItems: 'middle' }}>
           <div style={{ textAlign: 'center' }}>
             <RetinaImg

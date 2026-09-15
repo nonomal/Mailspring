@@ -2,6 +2,7 @@ import fs from 'fs';
 import { exec } from 'child_process';
 import { shell } from 'electron';
 import { localized } from './intl';
+import pkg from './utils/package';
 
 const bundleIdentifier = 'com.mailspring.mailspring';
 
@@ -42,20 +43,15 @@ export class DefaultClientHelperWindows implements DCH {
   }
 
   async resetURLScheme() {
-    const { response } = await require('@electron/remote').dialog.showMessageBox({
-      type: 'info',
-      buttons: [localized('Learn More')],
-      message: localized('Visit Windows Settings to change your default mail client'),
-      detail: localized(
-        "You'll find Mailspring, along with other options, listed in Default Apps > Mail."
-      ),
+    // On Windows 11 21H2+ (with April 2023 update), we can deep link directly to Mailspring's
+    // default app settings page. On older Windows versions, this falls back to the main
+    // Default Apps page, which is still better than opening a web browser.
+    shell.openExternal('ms-settings:defaultapps?registeredAppUser=Mailspring').catch((err) => {
+      AppEnv.showErrorDialog({
+        title: localized('Failed to Open Settings'),
+        message: localized('Mailspring was unable to open Windows Settings.\n\n%@', err.message),
+      });
     });
-
-    if (response === 0) {
-      shell.openExternal(
-        'http://support.getmailspring.com/hc/en-us/articles/115001881412-Choose-Mailspring-as-the-default-mail-client-on-Windows'
-      );
-    }
   }
 
   registerForURLScheme(scheme: string, callback = (error?: Error) => {}) {
@@ -80,17 +76,29 @@ export class DefaultClientHelperWindows implements DCH {
         if (!didMakeDefault) {
           const { response } = await require('@electron/remote').dialog.showMessageBox({
             type: 'info',
-            buttons: [localized('Learn More')],
-            defaultId: 1,
+            buttons: [localized('Open Settings'), localized('Cancel')],
+            defaultId: 0,
             message: localized(
               'Visit Windows Settings to finish making Mailspring your mail client'
             ),
-            detail: localized("Click 'Learn More' to view instructions in our knowledge base."),
+            detail: localized(
+              "Click 'Open Settings' to open Windows Settings where you can set Mailspring as your default email app."
+            ),
           });
           if (response === 0) {
-            shell.openExternal(
-              'http://support.getmailspring.com/hc/en-us/articles/115001881412-Choose-Mailspring-as-the-default-mail-client-on-Windows'
-            );
+            // On Windows 11 21H2+ (with April 2023 update), this deep links directly to
+            // Mailspring's default app settings. On older versions, falls back to Default Apps.
+            shell
+              .openExternal('ms-settings:defaultapps?registeredAppUser=Mailspring')
+              .catch((err) => {
+                AppEnv.showErrorDialog({
+                  title: localized('Failed to Open Settings'),
+                  message: localized(
+                    'Mailspring was unable to open Windows Settings.\n\n%@',
+                    err.message
+                  ),
+                });
+              });
           }
         }
         callback(null);
@@ -109,17 +117,17 @@ export class DefaultClientHelperLinux implements DCH {
       throw new Error('isRegisteredForURLScheme is async, provide a callback');
     }
     exec(`xdg-mime query default x-scheme-handler/${scheme}`, (err, stdout) =>
-      err ? callback(err) : callback(stdout.trim() === 'Mailspring.desktop')
+      err ? callback(err) : callback(stdout.trim() === pkg.desktopName)
     );
   }
 
   resetURLScheme(scheme: string, callback = (error?: Error) => {}) {
-    exec(`xdg-mime default thunderbird.desktop x-scheme-handler/${scheme}`, err =>
+    exec(`xdg-mime default thunderbird.desktop x-scheme-handler/${scheme}`, (err: Error | null) =>
       err ? callback(err) : callback(null)
     );
   }
   registerForURLScheme(scheme: string, callback = (error?: Error) => {}) {
-    exec(`xdg-mime default Mailspring.desktop x-scheme-handler/${scheme}`, err =>
+    exec(`xdg-mime default ${pkg.desktopName} x-scheme-handler/${scheme}`, (err: Error | null) =>
       err ? callback(err) : callback(null)
     );
   }
@@ -140,11 +148,17 @@ export class DefaultClientHelperMac implements DCH {
   }
 
   resetURLScheme(scheme: string, callback = (error?: Error) => {}) {
-    return callback(require('@electron/remote').app.removeAsDefaultProtocolClient(scheme));
+    const success = require('@electron/remote').app.removeAsDefaultProtocolClient(scheme);
+    return callback(
+      success ? null : new Error(`Failed to remove Mailspring as default handler for ${scheme}`)
+    );
   }
 
   registerForURLScheme(scheme: string, callback = (error?: Error) => {}) {
-    return callback(require('@electron/remote').app.setAsDefaultProtocolClient(scheme));
+    const success = require('@electron/remote').app.setAsDefaultProtocolClient(scheme);
+    return callback(
+      success ? null : new Error(`Failed to set Mailspring as default handler for ${scheme}`)
+    );
   }
 }
 

@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-const { v4: uuidv4 } = require('uuid');
 
 export const LOCAL_SERVER_PORT = 12141;
 
@@ -40,7 +39,10 @@ export const O365_CLIENT_ID =
   process.env.MS_O365_CLIENT_ID || '8787a430-6eee-41e1-b914-681d90d35625';
 
 export const O365_SCOPES = [
-  'user.read', // email address
+  'openid', // required for id_token to be returned
+  'email', // email claim in id_token
+  'profile', // displayName / name claims in id_token
+  'user.read', // email address via Graph /me
   'offline_access',
   'Contacts.ReadWrite', // contacts
   'Contacts.ReadWrite.Shared', // contacts
@@ -58,7 +60,7 @@ export const O365_SCOPES = [
 
 // Re-created only at onboarding page load / auth session start because storing
 // verifier would require additional state refactoring
-export const CODE_VERIFIER = uuidv4();
+export const CODE_VERIFIER = crypto.randomUUID();
 export const CODE_CHALLENGE = crypto
   .createHash('sha256')
   .update(CODE_VERIFIER, 'utf8')

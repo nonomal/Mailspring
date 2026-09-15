@@ -8,6 +8,7 @@ import * as Actions from '../actions';
 import KeyManager from '../../key-manager';
 import { makeRequest, rootURLForServer } from '../mailspring-api-request';
 import { Disposable } from 'event-kit';
+import { debounce } from 'underscore';
 
 // Note this key name is used when migrating to Mailspring Pro accounts from old N1.
 const PASSWORD_NAME = 'Mailspring Account';
@@ -88,12 +89,16 @@ class _IdentityStore extends MailspringStore {
 
   _fetchAndPollRemoteIdentity() {
     if (!AppEnv.isMainWindow()) return;
-    setTimeout(() => {
-      this.fetchIdentity();
-    }, 1000);
-    setInterval(() => {
-      this.fetchIdentity();
-    }, 1000 * 60 * 10); // 10 minutes
+    const poll = () => {
+      // fetchIdentity can still reject for reasons other than the network request
+      // itself (eg saveIdentity's keychain/config writes) - catch here too so a
+      // background poll never produces an unhandled promise rejection.
+      this.fetchIdentity().catch((err) => {
+        console.warn('IdentityStore: background identity poll failed:', err);
+      });
+    };
+    setTimeout(poll, 1000);
+    setInterval(poll, 1000 * 60 * 10); // 10 minutes
   }
 
   async saveIdentity(identity: IIdentity | null) {
@@ -151,6 +156,8 @@ class _IdentityStore extends MailspringStore {
   };
 
   _onLogoutMailspringIdentity = async () => {
+    // Do not touch the keychain or restart the app during specs.
+    if (AppEnv.inSpecMode()) return;
     await this.saveIdentity(null);
     // We need to relaunch the app to clear the webview session
     // and prevent the webview from re signing in with the same MailspringID
@@ -215,16 +222,35 @@ class _IdentityStore extends MailspringStore {
     }
   }
 
+  fetchIdentitySoon = debounce(
+    () => {
+      this.fetchIdentity().catch((err) => {
+        console.warn('IdentityStore: fetchIdentitySoon failed:', err);
+      });
+    },
+    5000,
+    true
+  );
+
   async fetchIdentity() {
     if (!this._identity || !this._identity.token) {
       return null;
     }
 
-    const json = await makeRequest({
-      server: 'identity',
-      path: '/api/me',
-      method: 'GET',
-    });
+    let json;
+    try {
+      json = await makeRequest({
+        server: 'identity',
+        path: '/api/me',
+        method: 'GET',
+      });
+    } catch (err) {
+      // Network failures here are routine (offline, timeouts, dropped connections)
+      // and will be retried by the next poll - don't let them reject and become
+      // unhandled promise rejections that get reported to Sentry.
+      console.warn('IdentityStore.fetchIdentity failed:', err);
+      return this._identity;
+    }
 
     if (!json || !json.id) {
       AppEnv.reportError(new Error('/api/me returned invalid json'), json || {});

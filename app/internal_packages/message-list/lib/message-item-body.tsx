@@ -3,7 +3,6 @@ import fs from 'fs';
 import React from 'react';
 import {
   Utils,
-  PropTypes,
   MessageUtils,
   MessageBodyProcessor,
   QuotedHTMLTransformer,
@@ -24,12 +23,7 @@ const SpinnerImg =
 class ConditionalQuotedTextControl extends React.Component<{ body: string; onClick?: () => void }> {
   static displayName = 'ConditionalQuotedTextControl';
 
-  static propTypes = {
-    body: PropTypes.string.isRequired,
-    onClick: PropTypes.func,
-  };
-
-  shouldComponentUpdate(nextProps) {
+  shouldComponentUpdate(nextProps: { body: string; onClick?: () => void }) {
     return this.props.body !== nextProps.body;
   }
 
@@ -61,15 +55,11 @@ export default class MessageItemBody extends React.Component<
   MessageItemBodyState
 > {
   static displayName = 'MessageItemBody';
-  static propTypes = {
-    message: PropTypes.object.isRequired,
-    downloads: PropTypes.object.isRequired,
-  };
 
   _mounted = false;
   _unsub: () => void;
 
-  constructor(props, context) {
+  constructor(props: MessageItemBodyProps, context: object) {
     super(props, context);
 
     const cached = MessageBodyProcessor.retrieveCached(props.message);
@@ -81,7 +71,8 @@ export default class MessageItemBody extends React.Component<
     };
   }
 
-  componentWillMount() {
+  componentDidMount() {
+    this._mounted = true;
     const needInitialCallback = this.state.processedBody === null;
     this._unsub = MessageBodyProcessor.subscribe(
       this.props.message,
@@ -90,16 +81,12 @@ export default class MessageItemBody extends React.Component<
     );
   }
 
-  componentDidMount() {
-    this._mounted = true;
-  }
-
-  componentWillReceiveProps(nextProps) {
-    if (nextProps.message.id !== this.props.message.id) {
+  componentDidUpdate(prevProps: MessageItemBodyProps) {
+    if (this.props.message.id !== prevProps.message.id) {
       if (this._unsub) {
         this._unsub();
       }
-      this._unsub = MessageBodyProcessor.subscribe(nextProps.message, true, this._onBodyProcessed);
+      this._unsub = MessageBodyProcessor.subscribe(this.props.message, true, this._onBodyProcessed);
     }
   }
 
@@ -124,7 +111,9 @@ export default class MessageItemBody extends React.Component<
       require('@electron/remote').app.getPath('temp'),
       `${message.id}.html`
     );
-    fs.writeFileSync(filepath, message.body);
+    // Prepend charset meta tag to ensure proper encoding (fixes garbled text for non-ASCII characters)
+    const htmlWithCharset = `<meta charset="UTF-8">\n${message.body}`;
+    fs.writeFileSync(filepath, htmlWithCharset);
     const win = new BrowserWindow({
       title: `${message.subject}`,
       width: 800,
@@ -142,8 +131,8 @@ export default class MessageItemBody extends React.Component<
 
     // Replace cid: references with the paths to downloaded files
     this.props.message.files
-      .filter(f => f.contentId)
-      .forEach(file => {
+      .filter((f) => f.contentId)
+      .forEach((file) => {
         const download = this.props.downloads[file.id];
         const safeContentId = Utils.escapeRegExp(file.contentId);
 
@@ -158,9 +147,11 @@ export default class MessageItemBody extends React.Component<
           // Render a spinner
           merged = merged.replace(inlineImgRegexp, () => SpinnerImg);
         } else {
-          merged = merged.replace(inlineImgRegexp, match =>
-            match.replace(`cid:${file.contentId}`, `file://${AttachmentStore.pathForFile(file)}`)
-          );
+          merged = merged.replace(inlineImgRegexp, (match) => {
+            const filePath = AttachmentStore.pathForFile(file);
+            if (!filePath) return match;
+            return match.replace(`cid:${file.contentId}`, `file://${filePath}`);
+          });
         }
       });
 

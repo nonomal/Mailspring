@@ -38,13 +38,16 @@ class CrashTracker {
   _timestamps = {};
   _tooManyFailures = {};
 
-  forgetCrashes(fullAccountJSON) {
+  forgetCrashes(fullAccountJSON: { id: string; settings: Record<string, unknown> }) {
     const key = this._keyFor(fullAccountJSON);
     delete this._timestamps[key];
     delete this._tooManyFailures[key];
   }
 
-  recordClientCrash(fullAccountJSON, crash: MailsyncProcessExit) {
+  recordClientCrash(
+    fullAccountJSON: { id: string; settings: Record<string, unknown> },
+    crash: MailsyncProcessExit
+  ) {
     console.log(`Sync worker exited.`, crash);
 
     this._appendCrashToHistory(fullAccountJSON);
@@ -56,7 +59,7 @@ class CrashTracker {
     return JSON.stringify({ id, settings });
   }
 
-  _appendCrashToHistory(fullAccountJSON) {
+  _appendCrashToHistory(fullAccountJSON: { id: string; settings: Record<string, unknown> }) {
     const key = this._keyFor(fullAccountJSON);
     this._timestamps[key] = this._timestamps[key] || [];
     if (this._timestamps[key].unshift(Date.now()) > MAX_CRASH_HISTORY) {
@@ -73,7 +76,7 @@ class CrashTracker {
     }
   }
 
-  tooManyFailures(fullAccountJSON) {
+  tooManyFailures(fullAccountJSON: { id: string; settings: Record<string, unknown> }) {
     const key = this._keyFor(fullAccountJSON);
     return this._tooManyFailures[key];
   }
@@ -90,12 +93,9 @@ export default class MailsyncBridge {
       return;
     }
 
-    // Temporary: allow calendar sync to be manually invoked
-    ipcRenderer.on('run-calendar-sync', () => {
-      for (const client of Object.values(this._clients)) {
-        client.sendMessage({ type: 'sync-calendar' });
-      }
-    });
+    ipcRenderer.on('run-calendar-sync', (_event, accountId?: string) =>
+      this.sendSyncCalendarNow(accountId)
+    );
 
     Actions.queueTask.listen(this._onQueueTask, this);
     Actions.queueTasks.listen(this._onQueueTasks, this);
@@ -200,7 +200,24 @@ export default class MailsyncBridge {
     }
   }
 
-  sendMessageToAccount(accountId, json) {
+  // Only the main window owns sync clients; other windows route through the
+  // main process, which forwards `run-calendar-sync` to the main window.
+  sendSyncCalendarNow(accountId?: string) {
+    if (!AppEnv.isMainWindow()) {
+      ipcRenderer.send('command', 'application:sync-calendar', accountId);
+      return;
+    }
+
+    const clients = accountId
+      ? [this._clients[accountId]].filter(Boolean)
+      : Object.values(this._clients);
+
+    for (const client of clients) {
+      client.sendMessage({ type: 'sync-calendar' });
+    }
+  }
+
+  sendMessageToAccount(accountId: string, json: Record<string, unknown>) {
     if (!this._clients[accountId]) {
       const { emailAddress } = AccountStore.accountForId(accountId) || { emailAddress: undefined };
       return AppEnv.showErrorDialog({
@@ -213,7 +230,7 @@ export default class MailsyncBridge {
     this._clients[accountId].sendMessage(json);
   }
 
-  async resetCacheForAccount(account, { silent }: { silent?: boolean } = {}) {
+  async resetCacheForAccount(account: Account, { silent }: { silent?: boolean } = {}) {
     // grab the existing client, if there is one
     const syncingClient = this._clients[account.id];
 
@@ -284,7 +301,11 @@ export default class MailsyncBridge {
     return { configDirPath, resourcePath, verbose };
   }
 
-  async _launchClient(account: Account, keys, { force }: { force?: boolean } = {}) {
+  async _launchClient(
+    account: Account,
+    keys: { [key: string]: string },
+    { force }: { force?: boolean } = {}
+  ) {
     const client = new MailsyncProcess(this._getClientConfiguration());
     this._clients[account.id] = client; // set this synchornously so we never spawn two
 
@@ -337,7 +358,7 @@ export default class MailsyncBridge {
     }
   }
 
-  _onQueueTask(task) {
+  _onQueueTask(task: Task) {
     if (!DatabaseObjectRegistry.isInRegistry(task.constructor.name)) {
       console.log(task);
       throw new Error(
@@ -359,15 +380,12 @@ export default class MailsyncBridge {
     task.willBeQueued();
 
     task.status = 'local';
-    task.origin = new Error().stack
-      .split('\n')
-      .slice(2)
-      .join('\n');
+    (task as any).origin = new Error().stack.split('\n').slice(2).join('\n');
 
     this.sendMessageToAccount(task.accountId, { type: 'queue-task', task: task });
   }
 
-  _onQueueTasks(tasks) {
+  _onQueueTasks(tasks: Task[]) {
     if (!tasks || !tasks.length) {
       return;
     }
@@ -376,23 +394,27 @@ export default class MailsyncBridge {
     }
   }
 
-  _onCancelTask(taskOrId) {
-    let task = taskOrId;
+  _onCancelTask(taskOrId: Task | string) {
+    let task: Task;
     if (typeof taskOrId === 'string') {
-      task = TaskQueue.queue().find(t => t.id === taskOrId);
+      task = TaskQueue.queue().find((t) => t.id === taskOrId);
+    } else {
+      task = taskOrId;
     }
     if (task) {
       this.sendMessageToAccount(task.accountId, { type: 'cancel-task', taskId: task.id });
     }
   }
 
-  _onIncomingMessages = msgs => {
+  _onIncomingMessages = (msgs: string[]) => {
     for (const msg of msgs) {
       if (msg.length === 0) {
         continue;
       }
       if (msg[0] !== '{') {
-        console.log(`Sync worker sent non-JSON formatted message: ${msg}`);
+        if (!msg.startsWith('Waiting for')) {
+          console.log(`Sync worker sent non-JSON formatted message: ${msg}`);
+        }
         continue;
       }
 
@@ -418,6 +440,11 @@ export default class MailsyncBridge {
       }
       if (modelClass === 'ProcessAccountSecretsUpdated' && modelJSONs.length) {
         KeyManager.extractAndStoreAccountSecrets(new Account(modelJSONs[0]));
+        continue;
+      }
+
+      if (modelClass === 'ProcessIdentityRefreshNeeded') {
+        IdentityStore.fetchIdentitySoon();
         continue;
       }
 
@@ -457,7 +484,7 @@ export default class MailsyncBridge {
     }
   };
 
-  _onIncomingRebroadcastMessage = (event, msg) => {
+  _onIncomingRebroadcastMessage = (event: Electron.IpcRendererEvent, msg: string) => {
     const { type, modelJSONs, modelClass } = JSON.parse(msg);
     const models = modelJSONs.map(Utils.convertToModel);
     DatabaseStore.trigger(
@@ -470,8 +497,8 @@ export default class MailsyncBridge {
     );
   };
 
-  _onFetchBodies(messages) {
-    const byAccountId = {};
+  _onFetchBodies(messages: { id: string; accountId: string }[]) {
+    const byAccountId: { [accountId: string]: string[] } = {};
     for (const msg of messages) {
       byAccountId[msg.accountId] = byAccountId[msg.accountId] || [];
       byAccountId[msg.accountId].push(msg.id);
@@ -481,14 +508,12 @@ export default class MailsyncBridge {
     }
   }
 
-  _onBeforeUnload = readyToUnload => {
+  _onBeforeUnload = (readyToUnload: () => void) => {
     // If other windows are open, delay the closing of the main window
     // by 400ms the first time beforeUnload is called so other windows
     // ave a chance to save drafts before we kill the workers.
     if (
-      require('@electron/remote')
-        .getGlobal('application')
-        .windowManager.getOpenWindowCount() <= 1
+      require('@electron/remote').getGlobal('application').windowManager.getOpenWindowCount() <= 1
     ) {
       return true;
     }

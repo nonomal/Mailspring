@@ -1,5 +1,5 @@
 import React from 'react';
-import { Utils } from 'mailspring-exports';
+import { Utils, localized } from 'mailspring-exports';
 import { RetinaImg } from 'mailspring-component-kit';
 import { CalendarView } from './calendar-constants';
 
@@ -21,8 +21,17 @@ export class HeaderControls extends React.Component<{
       return false;
     }
     return (
-      <button className="btn btn-icon next" ref="onNextAction" onClick={this.props.nextAction}>
-        <RetinaImg name="ic-calendar-right-arrow.png" mode={RetinaImg.Mode.ContentIsMask} />
+      <button
+        className="btn btn-icon next"
+        ref="onNextAction"
+        aria-label={localized('Next')}
+        onClick={this.props.nextAction}
+      >
+        <RetinaImg
+          name="ic-calendar-right-arrow.png"
+          mode={RetinaImg.Mode.ContentIsMask}
+          aria-hidden="true"
+        />
       </button>
     );
   }
@@ -32,19 +41,28 @@ export class HeaderControls extends React.Component<{
       return false;
     }
     return (
-      <button className="btn btn-icon prev" ref="onPreviousAction" onClick={this.props.prevAction}>
-        <RetinaImg name="ic-calendar-left-arrow.png" mode={RetinaImg.Mode.ContentIsMask} />
+      <button
+        className="btn btn-icon prev"
+        ref="onPreviousAction"
+        aria-label={localized('Previous')}
+        onClick={this.props.prevAction}
+      >
+        <RetinaImg
+          name="ic-calendar-left-arrow.png"
+          mode={RetinaImg.Mode.ContentIsMask}
+          aria-hidden="true"
+        />
       </button>
     );
   }
 
-  _changeView = newView => {
+  _changeView = (newView: CalendarView) => {
     this.props.onChangeView(newView);
   };
 
   render() {
     return (
-      <div className="header-controls">
+      <div className="header-controls" onClick={(e) => e.stopPropagation()}>
         <div className="center-controls">
           {this._renderPrevAction()}
           <span className="title">{this.props.title}</span>
@@ -52,7 +70,10 @@ export class HeaderControls extends React.Component<{
         </div>
         <div className="view-controls">
           {[
-            //{view: CalendarView.DAY, isDisabled: CalendarView.DAY === this.props.disabledViewButton,},
+            {
+              view: CalendarView.DAY,
+              isDisabled: CalendarView.DAY === this.props.disabledViewButton,
+            },
             {
               view: CalendarView.WEEK,
               isDisabled: CalendarView.WEEK === this.props.disabledViewButton,
@@ -61,7 +82,11 @@ export class HeaderControls extends React.Component<{
               view: CalendarView.MONTH,
               isDisabled: CalendarView.MONTH === this.props.disabledViewButton,
             },
-          ].map(buttonOptions => (
+            {
+              view: CalendarView.AGENDA,
+              isDisabled: CalendarView.AGENDA === this.props.disabledViewButton,
+            },
+          ].map((buttonOptions) => (
             <button
               key={buttonOptions.view}
               className={buttonOptions.isDisabled ? 'cur-view-btn' : 'view-btn'}

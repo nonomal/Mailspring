@@ -36,7 +36,7 @@ class PreferencesAccounts extends React.Component<
     const accounts = AccountStore.accounts();
     let selectedAccount;
     if (selected) {
-      selectedAccount = accounts.find(a => a.id === selected.id);
+      selectedAccount = accounts.find((a) => a.id === selected.id);
     }
     // If selected was null or no longer exists in the AccountStore,
     // just use the first account.
@@ -87,10 +87,12 @@ class PreferencesAccounts extends React.Component<
             onSelectAccount={this._onSelectAccount}
             onRemoveAccount={this._onRemoveAccount}
           />
-          <PreferencesAccountDetails
-            account={this.state.selected}
-            onAccountUpdated={this._onAccountUpdated}
-          />
+          {this.state.selected && (
+            <PreferencesAccountDetails
+              account={this.state.selected}
+              onAccountUpdated={this._onAccountUpdated}
+            />
+          )}
         </div>
       </div>
     );

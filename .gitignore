@@ -76,3 +76,7 @@ client_secret.json
 /app/mailsync.exe
 /app/mailsync.dSYM
 .idea
+.claude/worktrees/
+/test-results
+/playwright-report
+/playwright/test-results/

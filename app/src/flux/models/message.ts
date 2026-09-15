@@ -177,6 +177,16 @@ export class Message extends ModelWithMetadata {
       modelKey: 'folder',
       itemClass: Folder,
     }),
+
+    listUnsubscribe: Attributes.String({
+      modelKey: 'listUnsubscribe',
+      jsonKey: 'hListUnsub',
+    }),
+
+    listUnsubscribePost: Attributes.String({
+      modelKey: 'listUnsubscribePost',
+      jsonKey: 'hListUnsubPost',
+    }),
   };
 
   public subject: string;
@@ -198,6 +208,8 @@ export class Message extends ModelWithMetadata {
   public replyToHeaderMessageId: string;
   public forwardedHeaderMessageId: string;
   public folder: Folder;
+  public listUnsubscribe: string;
+  public listUnsubscribePost: string;
 
   /** indicates that "body" is plain text, not HTML */
   public plaintext: boolean;
@@ -268,10 +280,7 @@ export class Message extends ModelWithMetadata {
       if (!contact.email) {
         continue;
       }
-      const key = contact
-        .toString()
-        .trim()
-        .toLowerCase();
+      const key = contact.toString().trim().toLowerCase();
       if (seen[key]) {
         continue;
       }
@@ -285,13 +294,10 @@ export class Message extends ModelWithMetadata {
   // "reply all" to this message. This method takes into account whether the
   // message is from the current user, && also looks at the replyTo field.
   participantsForReplyAll() {
-    const excludedFroms = this.from.map(c => Utils.toEquivalentEmailForm(c.email));
+    const excludedFroms = this.from.map((c) => Utils.toEquivalentEmailForm(c.email));
 
     const excludeMeAndFroms = (cc: Contact[]) =>
-      _.reject(
-        cc,
-        p => p.isMe() || _.contains(excludedFroms, Utils.toEquivalentEmailForm(p.email))
-      );
+      cc.filter((p) => !(p.isMe() || excludedFroms.includes(Utils.toEquivalentEmailForm(p.email))));
 
     let to: Contact[] = null;
     let cc: Contact[] = null;
@@ -313,8 +319,8 @@ export class Message extends ModelWithMetadata {
       cc = excludeMeAndFroms([...this.to, ...this.cc]);
     }
 
-    to = _.uniq(to, p => Utils.toEquivalentEmailForm(p.email));
-    cc = _.uniq(cc, p => Utils.toEquivalentEmailForm(p.email));
+    to = _.uniq(to, (p) => Utils.toEquivalentEmailForm(p.email));
+    cc = _.uniq(cc, (p) => Utils.toEquivalentEmailForm(p.email));
     return { to, cc };
   }
 
@@ -337,13 +343,13 @@ export class Message extends ModelWithMetadata {
       to = this.from;
     }
 
-    to = _.uniq(to, p => Utils.toEquivalentEmailForm(p.email));
+    to = _.uniq(to, (p) => Utils.toEquivalentEmailForm(p.email));
     return { to, cc };
   }
 
   // Public: Returns an {Array} of {File} IDs
   fileIds() {
-    return this.files.map(file => file.id);
+    return this.files.map((file) => file.id);
   }
 
   // Public: Returns true if this message === from the current user's email

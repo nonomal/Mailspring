@@ -1,5 +1,5 @@
 import React from 'react';
-import { localized, Account, PropTypes, RegExpUtils } from 'mailspring-exports';
+import { localized, Account, RegExpUtils } from 'mailspring-exports';
 
 import * as OnboardingActions from './onboarding-actions';
 import CreatePageForForm from './decorators/create-page-for-form';
@@ -17,11 +17,15 @@ interface AccountBasicSettingsFormProps {
 class AccountBasicSettingsForm extends React.Component<AccountBasicSettingsFormProps> {
   static displayName = 'AccountBasicSettingsForm';
 
-  static submitLabel = account => {
+  static submitLabel = (account: Account) => {
     return account.provider === 'imap' ? localized('Continue') : localized('Connect Account');
   };
 
-  static titleLabel = providerConfig => {
+  static titleLabel = (providerConfig: {
+    title?: string;
+    displayNameShort?: string;
+    displayName: string;
+  }) => {
     return (
       providerConfig.title ||
       localized(
@@ -31,7 +35,7 @@ class AccountBasicSettingsForm extends React.Component<AccountBasicSettingsFormP
     );
   };
 
-  static subtitleLabel = providerConfig => {
+  static subtitleLabel = (providerConfig: { note?: React.ReactNode }) => {
     return (
       providerConfig.note ||
       localized(
@@ -40,7 +44,7 @@ class AccountBasicSettingsForm extends React.Component<AccountBasicSettingsFormP
     );
   };
 
-  static validateAccount = account => {
+  static validateAccount = (account: Account) => {
     const errorFieldNames = [];
     let errorMessage = null;
 
@@ -66,7 +70,12 @@ class AccountBasicSettingsForm extends React.Component<AccountBasicSettingsFormP
 
   async submit() {
     // create a new account with expanded settings and just the three fields
-    const { name, emailAddress, provider, settings: { imap_password } } = this.props.account;
+    const {
+      name,
+      emailAddress,
+      provider,
+      settings: { imap_password },
+    } = this.props.account;
     let account = new Account({ name, emailAddress, provider, settings: { imap_password } });
     account = await expandAccountWithCommonSettings(account);
     OnboardingActions.setAccount(account);
@@ -87,7 +96,7 @@ class AccountBasicSettingsForm extends React.Component<AccountBasicSettingsFormP
         <FormField field="emailAddress" title={localized('Email')} {...this.props} />
         <FormField
           field="settings.imap_password"
-          title="Password"
+          title={localized('Password')}
           type="password"
           {...this.props}
         />

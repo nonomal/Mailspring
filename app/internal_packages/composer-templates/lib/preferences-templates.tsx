@@ -5,23 +5,20 @@ import { Flexbox, EditableList, ComposerEditor, ComposerSupport } from 'mailspri
 import { Actions, localized, localizedReactFragment } from 'mailspring-exports';
 import { Value } from 'slate';
 
-import TemplateStore from './template-store';
+import TemplateStore, { TemplateItem } from './template-store';
+import { parseTemplate, stringifyTemplate } from './template-file';
 
-interface ITemplate {
-  path: string;
-  name: string;
-}
 const {
   Conversion: { convertFromHTML, convertToHTML },
 } = ComposerSupport;
 
 interface TemplateEditorProps {
-  template: ITemplate;
+  template: TemplateItem;
   onEditTitle: (title: string) => void;
 }
 class TemplateEditor extends React.Component<
   TemplateEditorProps,
-  { readOnly: boolean; editorState: Value }
+  { readOnly: boolean; editorState: Value; subject: string }
 > {
   _composer: ComposerEditor;
 
@@ -29,14 +26,16 @@ class TemplateEditor extends React.Component<
     super(props);
 
     if (this.props.template) {
-      const inHTML = fs.readFileSync(props.template.path).toString();
+      const { subject, body } = parseTemplate(fs.readFileSync(props.template.path).toString());
       this.state = {
-        editorState: convertFromHTML(inHTML),
+        editorState: convertFromHTML(body),
+        subject,
         readOnly: false,
       };
     } else {
       this.state = {
         editorState: convertFromHTML(''),
+        subject: '',
         readOnly: true,
       };
     }
@@ -44,12 +43,19 @@ class TemplateEditor extends React.Component<
 
   _onSave = () => {
     if (!this.state.readOnly) {
-      const outHTML = convertToHTML(this.state.editorState);
+      const outHTML = stringifyTemplate({
+        subject: this.state.subject,
+        body: convertToHTML(this.state.editorState),
+      });
       fs.writeFileSync(this.props.template.path, outHTML);
     }
   };
 
-  _onFocusEditor = e => {
+  _onSubjectChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    this.setState({ subject: e.target.value });
+  };
+
+  _onFocusEditor = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === ReactDOM.findDOMNode(this._composer)) {
       this._composer.focusEndAbsolute();
     }
@@ -57,30 +63,53 @@ class TemplateEditor extends React.Component<
 
   render() {
     const { onEditTitle, template } = this.props;
-    const { readOnly, editorState } = this.state;
+    const { readOnly, editorState, subject } = this.state;
 
     return (
       <div className={`template-wrap ${readOnly && 'empty'}`}>
-        <div className="section">
-          <input
-            type="text"
-            id="title"
-            placeholder={localized('Name')}
-            style={{ maxWidth: 400 }}
-            defaultValue={template ? template.name : ''}
-            onBlur={e => onEditTitle(e.target.value)}
-          />
+        <div className="section fields">
+          <div className="field name">
+            <label htmlFor="template-title" className="sr-only">
+              {localized('Template Name')}
+            </label>
+            <input
+              type="text"
+              id="template-title"
+              placeholder={localized('Name')}
+              disabled={readOnly}
+              defaultValue={template ? template.name : ''}
+              onBlur={(e) => onEditTitle(e.target.value)}
+            />
+          </div>
+          <div className="field subject">
+            <label htmlFor="template-subject" className="sr-only">
+              {localized('Subject')}
+            </label>
+            <input
+              type="text"
+              id="template-subject"
+              placeholder={localized('Subject (optional)')}
+              disabled={readOnly}
+              value={subject}
+              onChange={this._onSubjectChange}
+              onBlur={this._onSave}
+            />
+          </div>
         </div>
         <div className="section editor" onClick={this._onFocusEditor}>
           <ComposerEditor
-            ref={c => (this._composer = c)}
+            ref={(c) => (this._composer = c)}
             value={editorState}
+            readOnly={readOnly}
             propsForPlugins={{ inTemplateEditor: true }}
-            onChange={change => this.setState({ editorState: change.value })}
+            onChange={(change) => this.setState({ editorState: change.value })}
             onBlur={this._onSave}
           />
         </div>
         <div className="section note">
+          {localized(
+            'The subject is filled into your draft when you use the template. Leave it blank to keep the subject you already have.'
+          )}{' '}
           {localizedReactFragment(
             'Changes are saved automatically. View the %@ for tips and tricks.',
             <a href="https://community.getmailspring.com/t/reply-faster-with-email-templates/167">
@@ -95,7 +124,7 @@ class TemplateEditor extends React.Component<
 
 export default class PreferencesTemplates extends React.Component<
   Record<string, unknown>,
-  { selected: ITemplate; templates: ITemplate[] }
+  { selected: TemplateItem; templates: TemplateItem[] }
 > {
   static displayName = 'PreferencesTemplates';
 
@@ -115,7 +144,7 @@ export default class PreferencesTemplates extends React.Component<
   }
 
   componentWillUnmount() {
-    this.unsubscribers.forEach(unsubscribe => unsubscribe());
+    this.unsubscribers.forEach((unsubscribe) => unsubscribe());
   }
 
   _getStateFromStores() {
@@ -123,11 +152,12 @@ export default class PreferencesTemplates extends React.Component<
     let lastSelIndex = null;
     if (this.state) {
       lastSelName = this.state.selected && this.state.selected.name;
-      lastSelIndex = this.state.templates.findIndex(t => t.name === lastSelName);
+      lastSelIndex = this.state.templates.findIndex((t) => t.name === lastSelName);
     }
 
     const templates = TemplateStore.items();
-    const selected = templates.find(t => t.name === lastSelName) || templates[lastSelIndex] || null;
+    const selected =
+      templates.find((t) => t.name === lastSelName) || templates[lastSelIndex] || null;
 
     return {
       templates,
@@ -146,11 +176,11 @@ export default class PreferencesTemplates extends React.Component<
     Actions.deleteTemplate(this.state.selected.name);
   };
 
-  _onEditTitle = newName => {
+  _onEditTitle = (newName: string) => {
     Actions.renameTemplate(this.state.selected.name, newName);
   };
 
-  _onSelect = item => {
+  _onSelect = (item: TemplateItem) => {
     this.setState({ selected: item });
   };
 
@@ -166,7 +196,7 @@ export default class PreferencesTemplates extends React.Component<
                 showEditIcon
                 className="template-list"
                 items={this.state.templates}
-                itemContent={template => template.name}
+                itemContent={(template) => template.name}
                 onCreateItem={this._onAdd}
                 onDeleteItem={this._onDelete}
                 onItemEdited={this._onEditTitle}

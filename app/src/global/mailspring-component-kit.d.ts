@@ -8,7 +8,6 @@ export const DatePickerPopover: typeof import('../components/date-picker-popover
 export const Modal: typeof import('../components/modal').default;
 export const Webview: typeof import('../components/webview').default;
 export const FeatureUsedUpModal: typeof import('../components/feature-used-up-modal').default;
-export const BillingModal: typeof import('../components/billing-modal').default;
 export const OpenIdentityPageButton: typeof import('../components/open-identity-page-button').default;
 export * from '../components/flexbox';
 
@@ -56,6 +55,7 @@ export const EditableTableCell: typeof import('../components/editable-table').Ed
 export * from '../components/lazy-rendered-list';
 export * from '../components/attachment-items';
 export const CodeSnippet: typeof import('../components/code-snippet').default;
+export const CopyButton: typeof import('../components/copy-button').default;
 
 export * from '../components/composer-editor/composer-editor';
 export * from '../components/composer-editor/composer-editor-plaintext';
@@ -78,3 +78,4 @@ export const ListensToFluxStore: typeof import('../components/decorators/listens
 export const ListensToMovementKeys: typeof import('../components/decorators/listens-to-movement-keys').default;
 export const HasTutorialTip: typeof import('../components/decorators/has-tutorial-tip').default;
 export const CreateButtonGroup: typeof import('../components/decorators/create-button-group').default;
+export * from '../components/roving-tab-index-toolbar';

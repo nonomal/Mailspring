@@ -177,6 +177,7 @@ describe('UnreadNotifications', function UnreadNotifications() {
 
     this.notification = jasmine.createSpyObj('notification', ['close']);
     spyOn(NativeNotifications, 'displayNotification').andReturn(this.notification);
+    spyOn(NativeNotifications, 'displaySummaryNotification').andReturn(Promise.resolve(null));
 
     spyOn(Promise, 'props').andCallFake(dict => {
       const dictOut = {};
@@ -204,7 +205,6 @@ describe('UnreadNotifications', function UnreadNotifications() {
         objects: [this.msgRead, this.msg1],
         objectsRawJSON: getObjectsRawJson([this.msgRead.id, '1'])
       });
-      advanceClock(2000);
       expect(NativeNotifications.displayNotification).toHaveBeenCalled();
       const options = NativeNotifications.displayNotification.mostRecentCall.args[0];
       delete options.onActivate;
@@ -212,8 +212,15 @@ describe('UnreadNotifications', function UnreadNotifications() {
         title: 'Ben',
         subtitle: 'Hello World',
         body: undefined,
+        tag: 'thread-A',
+        threadId: 'A',
+        messageId: '1',
         canReply: true,
-        tag: 'unread-update',
+        replyPlaceholder: 'Reply to Ben...',
+        actions: [
+          { type: 'button', text: 'Mark as Read' },
+          { type: 'button', text: 'Archive' },
+        ],
       });
     });
   });
@@ -225,9 +232,14 @@ describe('UnreadNotifications', function UnreadNotifications() {
         objects: [this.msg1, this.msg2, this.msg3],
         objectsRawJSON: getObjectsRawJson(['1', '2', '3'])
       });
-      // Need to call advance clock twice because we call setTimeout twice
-      advanceClock(2000);
-      advanceClock(2000);
+      // msg1 is already notified; drain microtasks so _notifyMessages registers
+      // the setTimeout for msg2, then advance the clock to fire it.
+      await Promise.resolve();
+      await Promise.resolve();
+      advanceClock(2000); // fires → msg2 notified
+      await Promise.resolve();
+      await Promise.resolve();
+      advanceClock(2000); // fires → msg3 notified
       expect(NativeNotifications.displayNotification.callCount).toEqual(3);
     });
   });
@@ -239,14 +251,22 @@ describe('UnreadNotifications', function UnreadNotifications() {
         objects: [this.msg1, this.msg2],
         objectsRawJSON: getObjectsRawJson(['1', '2'])
       });
-      advanceClock(2000);
+      // Drain microtasks so _notifyMessages registers the setTimeout for msg2
+      await Promise.resolve();
+      await Promise.resolve();
       await this.notifier._onDatabaseChanged({
         objectClass: Message.name,
         objects: [this.msg3, this.msg4],
         objectsRawJSON: getObjectsRawJson(['3', '4'])
       });
-      advanceClock(2000);
-      advanceClock(2000);
+      // msg3 and msg4 are now queued; fire the pending setTimeout for msg2
+      advanceClock(2000); // fires → msg2 notified
+      await Promise.resolve();
+      await Promise.resolve();
+      advanceClock(2000); // fires → msg3 notified
+      await Promise.resolve();
+      await Promise.resolve();
+      advanceClock(2000); // fires → msg4 notified
       expect(NativeNotifications.displayNotification.callCount).toEqual(4);
       const subjects = NativeNotifications.displayNotification.calls.map(call => {
         return call.args[0].subtitle;
@@ -256,7 +276,7 @@ describe('UnreadNotifications', function UnreadNotifications() {
     });
   });
 
-  it('should create a Notification if there are five or more unread messages', () => {
+  it('should create a summary Notification if there are five or more unread messages', () => {
     waitsForPromise(async () => {
       await this.notifier._onDatabaseChanged({
         objectClass: Message.name,
@@ -264,12 +284,12 @@ describe('UnreadNotifications', function UnreadNotifications() {
         objectsRawJSON: getObjectsRawJson(['1', '2', '3', '4', '5'])
       });
       advanceClock(2000);
-      expect(NativeNotifications.displayNotification).toHaveBeenCalled();
-      const [{ title, tag }] = NativeNotifications.displayNotification.mostRecentCall.args;
-      expect({ title, tag }).toEqual({
-        title: '5 Unread Messages',
-        tag: 'unread-update',
-      });
+      expect(NativeNotifications.displaySummaryNotification).toHaveBeenCalled();
+      expect(NativeNotifications.displayNotification).not.toHaveBeenCalled();
+      const options = NativeNotifications.displaySummaryNotification.mostRecentCall.args[0];
+      expect(options.count).toEqual(5);
+      expect(options.senders).toContain('Ben');
+      expect(options.senders).toContain('Mark');
     });
   });
 
@@ -288,8 +308,15 @@ describe('UnreadNotifications', function UnreadNotifications() {
         title: 'Unknown',
         subtitle: 'Hello World',
         body: undefined,
+        tag: 'thread-A',
+        threadId: 'A',
+        messageId: 'no',
         canReply: true,
-        tag: 'unread-update',
+        replyPlaceholder: 'Reply to Unknown...',
+        actions: [
+          { type: 'button', text: 'Mark as Read' },
+          { type: 'button', text: 'Archive' },
+        ],
       });
     });
   });
@@ -321,8 +348,15 @@ describe('UnreadNotifications', function UnreadNotifications() {
         title: 'Ben',
         subtitle: 'Hello World',
         body: undefined,
+        tag: 'thread-A',
+        threadId: 'A',
+        messageId: '1',
         canReply: true,
-        tag: 'unread-update',
+        replyPlaceholder: 'Reply to Ben...',
+        actions: [
+          { type: 'button', text: 'Mark as Read' },
+          { type: 'button', text: 'Archive' },
+        ],
       });
     });
   });
@@ -339,7 +373,7 @@ describe('UnreadNotifications', function UnreadNotifications() {
   });
 
   // TODO(flotwig): figure out why this is failing, what is the desired behavior?
-  it.skip('should not create a Notification if the message model is being updated', () => {
+  xit('should not create a Notification if the message model is being updated', () => {
     waitsForPromise(async () => {
       await this.notifier._onDatabaseChanged({
         objectClass: Message.name,
@@ -390,6 +424,10 @@ describe('UnreadNotifications', function UnreadNotifications() {
         objects: [this.msg1],
         objectsRawJSON: getObjectsRawJson([this.msg1.id])
       });
+      // Drain the microtask queue so that the async _onMessagesChanged chain
+      // (which stores the notification in activeNotifications) fully completes
+      // before we check/clear notifications via _onThreadsChanged below.
+      await Promise.resolve();
       expect(NativeNotifications.displayNotification).toHaveBeenCalled();
       expect(this.notification.close).not.toHaveBeenCalled();
 

@@ -17,7 +17,7 @@ import {
   DatabaseStore,
 } from 'mailspring-exports';
 import ICAL from 'ical.js';
-import { findOneIana } from "windows-iana";
+import { findOneIana } from 'windows-iana';
 
 const moment = require('moment-timezone');
 
@@ -28,7 +28,7 @@ interface EventHeaderProps {
 
 interface EventHeaderState {
   icsOriginalData?: string;
-  icsMethod?: 'reply' | 'request';
+  icsMethod?: 'reply' | 'request' | 'cancel';
   icsEvent?: ICAL.Event;
   inflight?: ICSParticipantStatus;
 }
@@ -46,7 +46,7 @@ we fall back to storing the RSVP status in message metadata (so the "Accept" but
 export class EventHeader extends React.Component<EventHeaderProps, EventHeaderState> {
   static displayName = 'EventHeader';
 
-  state = {
+  state: EventHeaderState = {
     icsEvent: undefined,
     icsMethod: undefined,
     icsOriginalData: undefined,
@@ -70,11 +70,25 @@ export class EventHeader extends React.Component<EventHeaderProps, EventHeaderSt
     fs.readFile(AttachmentStore.pathForFile(file), async (err, data) => {
       if (err || !this._mounted) return;
 
-      const { event, root } = CalendarUtils.parseICSString(data.toString());
+      let parsed: ReturnType<typeof CalendarUtils.parseICSString>;
+      try {
+        parsed = CalendarUtils.parseICSString(data.toString());
+      } catch (e) {
+        console.warn(
+          `EventHeader: Could not parse ICS data from attachment ${file.filename}: ${e.message}`
+        );
+        return;
+      }
+      const { event, root } = parsed;
 
+      const method = root.getFirstPropertyValue('method');
+      const methodLower = (typeof method === 'string' ? method : 'request').toLowerCase();
+      // Normalize to known methods: request, reply, cancel. Default unknown methods to request.
+      const normalizedMethod =
+        methodLower === 'reply' || methodLower === 'cancel' ? methodLower : 'request';
       this.setState({
         icsEvent: event,
-        icsMethod: (root.getFirstPropertyValue('method') || 'request').toLowerCase(),
+        icsMethod: normalizedMethod as 'reply' | 'request' | 'cancel',
         icsOriginalData: data.toString(),
       });
 
@@ -83,16 +97,21 @@ export class EventHeader extends React.Component<EventHeaderProps, EventHeaderSt
           icsuid: event.uid,
           accountId: message.accountId,
         })
-      ).subscribe(calEvent => {
+      ).subscribe((calEvent) => {
         if (!this._mounted || !calEvent) return;
-        this.setState({
-          icsEvent: CalendarUtils.parseICSString(calEvent.ics).event,
-        });
+        try {
+          this.setState({
+            icsEvent: CalendarUtils.parseICSString(calEvent.ics).event,
+            icsOriginalData: calEvent.ics,
+          });
+        } catch (e) {
+          console.warn(`EventHeader: Could not parse ICS data from calendar event: ${e.message}`);
+        }
       });
     });
   }
 
-  componentDidUpdate(prevProps, prevState) {
+  componentDidUpdate(prevProps: EventHeaderProps, prevState: EventHeaderState) {
     if (prevState.inflight) {
       this.setState({ inflight: undefined });
     }
@@ -106,19 +125,21 @@ export class EventHeader extends React.Component<EventHeaderProps, EventHeaderSt
 
     // Workaround to convert calendar invites sent out from Microsoft calendars to IANA timezones
     // that can be handled by moments-timezone.
-    let startTimezone = findOneIana(icsEvent.startDate.timezone) || icsEvent.startDate.timezone;
-    let endTimezone = findOneIana(icsEvent.endDate.timezone) || icsEvent.endDate.timezone;
-
+    let startTimezone = findOneIana(icsEvent.startDate.zone.tzid) || icsEvent.startDate.zone.tzid;
+    let endTimezone = findOneIana(icsEvent.endDate.zone.tzid) || icsEvent.endDate.zone.tzid;
+    console.log(startTimezone, endTimezone, icsEvent, icsEvent.startDate.toString());
     // Workaround to convert calendar invites sent out from Google calendar with "Z" timezone
     // to IANA timezone that can be handled by moments-timezone.
-    if (startTimezone === "Z") {
-      startTimezone = "UTC";
+    if (startTimezone === 'Z') {
+      startTimezone = 'UTC';
     }
-    if (endTimezone === "Z") {
-      endTimezone = "UTC";
+    if (endTimezone === 'Z') {
+      endTimezone = 'UTC';
     }
 
-    const startMoment = moment.tz(icsEvent.startDate.toString(), startTimezone).tz(DateUtils.timeZone);
+    const startMoment = moment
+      .tz(icsEvent.startDate.toString(), startTimezone)
+      .tz(DateUtils.timeZone);
     const endMoment = moment.tz(icsEvent.endDate.toString(), endTimezone).tz(DateUtils.timeZone);
 
     const daySeconds = 24 * 60 * 60 * 1000;
@@ -156,7 +177,11 @@ export class EventHeader extends React.Component<EventHeaderProps, EventHeaderSt
               <div className="event-time">{time}</div>
             </div>
             <div className="event-location">{icsEvent.location}</div>
-            {icsMethod === 'request' ? this._renderRSVP() : this._renderSenderResponse()}
+            {icsMethod === 'cancel'
+              ? this._renderCancellation()
+              : icsMethod === 'request'
+                ? this._renderRSVP()
+                : this._renderSenderResponse()}
           </div>
         </div>
       </div>
@@ -168,7 +193,7 @@ export class EventHeader extends React.Component<EventHeaderProps, EventHeaderSt
     const from = this.props.message.from[0];
     if (!from) return false;
 
-    const sender = CalendarUtils.cleanParticipants(icsEvent).find(p => p.email === from.email);
+    const sender = CalendarUtils.cleanParticipants(icsEvent).find((p) => p.email === from.email);
     if (!sender) return false;
 
     const verb: { [key: string]: string } = {
@@ -184,6 +209,21 @@ export class EventHeader extends React.Component<EventHeaderProps, EventHeaderSt
     );
   }
 
+  _renderCancellation() {
+    const { icsEvent } = this.state;
+    const organizerEmail = CalendarUtils.emailFromParticipantURI(icsEvent.organizer);
+
+    return (
+      <div className="event-actions event-cancelled">
+        <span className="cancelled-notice">
+          {organizerEmail
+            ? localized('This event has been cancelled by %@', organizerEmail)
+            : localized('This event has been cancelled')}
+        </span>
+      </div>
+    );
+  }
+
   _renderRSVP() {
     const { icsEvent, inflight } = this.state;
     const me = CalendarUtils.selfParticipant(icsEvent, this.props.message.accountId);
@@ -191,7 +231,7 @@ export class EventHeader extends React.Component<EventHeaderProps, EventHeaderSt
 
     let status = me.status;
 
-    const icsTimeProperty = icsEvent.component.getFirstPropertyValue('dtstamp');
+    const icsTimeProperty = icsEvent.component.getFirstPropertyValue('dtstamp') as ICAL.Time;
     const icsTime = icsTimeProperty ? icsTimeProperty.toJSDate() : new Date(0);
 
     const metadata = this.props.message.metadataForPluginId('event-rsvp');
@@ -216,12 +256,12 @@ export class EventHeader extends React.Component<EventHeaderProps, EventHeaderSt
             {actionStatus === status || actionStatus !== inflight ? (
               actionLabel
             ) : (
-                <RetinaImg
-                  width={18}
-                  name="sending-spinner.gif"
-                  mode={RetinaImg.Mode.ContentPreserve}
-                />
-              )}
+              <RetinaImg
+                width={18}
+                name="sending-spinner.gif"
+                mode={RetinaImg.Mode.ContentPreserve}
+              />
+            )}
           </div>
         ))}
       </div>
@@ -236,23 +276,39 @@ export class EventHeader extends React.Component<EventHeaderProps, EventHeaderSt
     if (!organizerEmail) {
       AppEnv.showErrorDialog(
         localized(
-          "Sorry, this event does not have an organizer or the organizer's address is not a valid email address: {}",
-          icsEvent.organizer
+          "Sorry, this event does not have an organizer or the organizer's address is not a valid email address: %@",
+          icsEvent.organizer || '(none)'
         )
       );
+      return;
     }
 
-    this.setState({ inflight: status });
-
-    Actions.queueTask(
-      EventRSVPTask.forReplying({
+    // The attendee list in `icsOriginalData` (the emailed .ics attachment) can differ
+    // from the one used to decide whether to show these buttons if a synced calendar
+    // Event later replaced `icsEvent`. EventRSVPTask.forReplying throws if it can't
+    // find us as an attendee in the data it's actually replying with; catch that here
+    // instead of letting it crash the click handler.
+    let task: EventRSVPTask;
+    try {
+      task = EventRSVPTask.forReplying({
         accountId: this.props.message.accountId,
         messageId: this.props.message.id,
         icsOriginalData,
         icsRSVPStatus: status,
         to: organizerEmail,
-      })
-    );
+      });
+    } catch (e) {
+      console.warn(`EventHeader: Could not build RSVP reply: ${e.message}`);
+      AppEnv.showErrorDialog(
+        localized(
+          "Sorry, we couldn't find your email address in this event's attendee list, so an RSVP reply could not be sent."
+        )
+      );
+      return;
+    }
+
+    this.setState({ inflight: status });
+    Actions.queueTask(task);
   };
 }
 

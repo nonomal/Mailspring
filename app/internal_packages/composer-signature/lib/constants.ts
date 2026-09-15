@@ -4,8 +4,6 @@ import { localized } from 'mailspring-exports';
 import ReactDOMServer from 'react-dom/server';
 import Templates from './templates';
 
-export const RAW_TEMPLATE_NAME = 'raw';
-
 export const DataShape = [
   {
     key: 'name',
@@ -70,10 +68,10 @@ export const DataShape = [
   },
 ];
 
-export const ResolveSignatureData = data => {
+export const ResolveSignatureData = (data: Record<string, string>) => {
   data = { ...data };
 
-  ['websiteURL', 'facebookURL', 'youtubeURL'].forEach(key => {
+  ['websiteURL', 'facebookURL', 'youtubeURL'].forEach((key) => {
     if (data[key] && !data[key].includes(':')) {
       data[key] = `http://${data[key]}`;
     }
@@ -143,7 +141,7 @@ export const ResolveSignatureData = data => {
   return data;
 };
 
-export function RenderSignatureData(data) {
-  const template = Templates.find(t => t.name === data.templateName) || Templates[0];
+export function RenderSignatureData(data: Record<string, string>) {
+  const template = Templates.find((t) => t.name === data.templateName) || Templates[0];
   return ReactDOMServer.renderToStaticMarkup(template(ResolveSignatureData(data)));
 }
